@@ -39,11 +39,45 @@ For each completed folder, whether from slskd or the drop folder, it does the fo
    - `art.py` then keeps a single `cover.jpg`: the largest source, capped at 1200 px, JPEG q85 4:2:0, progressive and mozjpeg-optimised. This is the same treatment as the rest of the library.
    - Other cover copies are removed, and embedded pictures are stripped from the tracks.
 4. **Genre.** `lastgenre` adds one genre if the files have none.
-5. **Clean-up.** The download folder is deleted once all its audio is in the library and only images and text files remain.
+5. **Lyrics.** LRCLIB lyrics are written next to each track, unless `LYRICS=0`. See [Lyrics](#lyrics).
+6. **Clean-up.** The download folder is deleted once all its audio is in the library and only images and text files remain.
 
 Navidrome's file watcher picks up the new folder within about 30 s.
 
 A folder with no confident match is left in `slskd/data/downloads` (or moved to the inbox's `_not-imported/`) and logged. Nothing in it is changed, apart from the provisional tags step 2 may have written.
+
+## Lyrics
+
+Lyrics come from [LRCLIB](https://lrclib.net), a free community database with no API key. They are written as sidecar files, so the audio files are never modified:
+
+- `NN Title.lrc` holds time-synced lyrics, used whenever they are available.
+- `NN Title.txt` holds plain lyrics, used only when no synced version exists.
+
+Navidrome's default `LyricsPriority` (`.lrc`, then `.txt`, then embedded) serves these to apps right away; no rescan is needed. Clients that support OpenSubsonic, such as Symfonium, show the synced lyrics karaoke-style.
+
+Matching:
+- The first lookup is LRCLIB's exact match on artist, title, album and duration (rounded to the second).
+- If that finds nothing, or only plain lyrics, the next step is a search by artist and title. Its results only count if their duration is within 2 s of the track's, so live versions and edits don't get the wrong lyrics.
+
+Tracks are skipped when they:
+- already have a `.lrc` or `.txt` file, or lyrics stored inside the file;
+- are marked instrumental by LRCLIB.
+
+Each track's result is stored in `data/lyrics.db` as one of: `synced`, `plain`, `embedded` (lyrics already stored in the file), `instrumental`, `not-found` or `no-tags`. A track that was not found, was instrumental, or had no tags is retried only after `LYRICS_RETRY_DAYS` (30). Requests are spaced 0.5 s apart.
+
+```bash
+docker-compose exec music-importer music-importer lyrics                       # whole library (resumable)
+docker-compose exec music-importer music-importer lyrics "/music/<Artist>/<Album (Year)>"
+docker-compose exec music-importer music-importer lyrics --retry-all           # ignore the 30-day memory
+```
+
+To remove all fetched lyrics again, delete the `.lrc` files and the `.txt` files recorded as `plain`:
+
+```bash
+find /srv/media/music -name '*.lrc' -delete
+sqlite3 data/lyrics.db "select path from tracks where status='plain'" \
+  | sed -E 's#^/music#/srv/media/music#; s#\.[^.]+$#.txt#' | tr '\n' '\0' | xargs -0 rm -f
+```
 
 ## Duplicates: newer wins
 

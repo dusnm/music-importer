@@ -13,14 +13,14 @@ from pathlib import Path
 
 import yaml
 
-from . import art, fingerprint
+from . import art, fingerprint, lyrics
 
 log = logging.getLogger(__name__)
 
 TEMPLATE = Path(os.environ.get('BEETS_TEMPLATE', '/app/config/beets.yaml'))
 # What may be left behind in a download folder once its audio has been imported.
 LEFTOVER_OK = art.IMG | {'.txt', '.nfo', '.log', '.cue', '.m3u', '.m3u8', '.sfv', '.md5',
-                         '.accurip', '.url', '.db', '.ini', '.pdf'}
+                         '.accurip', '.url', '.db', '.ini', '.pdf', '.lrc'}
 
 
 @dataclass
@@ -30,6 +30,7 @@ class Settings:
     data_dir: Path = Path(os.environ.get('DATA_DIR', '/data'))
     fanarttv_key: str = field(default_factory=lambda: os.environ.get('FANARTTV_API_KEY', ''))
     remove_leftovers: bool = os.environ.get('REMOVE_LEFTOVERS', '1') == '1'
+    fetch_lyrics: bool = os.environ.get('LYRICS', '1') == '1'
     replaced_dir: Path = Path(os.environ.get('REPLACED_DIR', '/replaced'))
     replaced_keep_days: float = float(os.environ.get('REPLACED_KEEP_DAYS', '30'))
 
@@ -179,6 +180,9 @@ def import_folder(folder: Path, s: Settings | None = None, *, search_id: str | N
         cover = root / 'cover.jpg'
         set_artpath(s, album_id, cover if cover.exists() else None)
         rep['tracks'] = len(album_tracks)
+        if s.fetch_lyrics:
+            rep['lyrics'] = lyrics.fetch(album_tracks, s.data_dir)
+            rep['actions'].append('lyrics: ' + lyrics._fmt(rep['lyrics']))
         result['albums'].append(rep)
         log.info('imported %s (%d tracks): %s', root, len(album_tracks), '; '.join(rep['actions']))
     replaced = _new_lines(s.data_dir / 'replaced.jsonl', replaced_mark)

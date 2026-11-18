@@ -4,6 +4,7 @@
   music-importer import DIR [--mbid ID]      import one folder now (DIR inside /downloads)
   music-importer index                       register the existing library in the beets DB
   music-importer art DIR                     normalise cover art of an album folder in place
+  music-importer lyrics [DIR] [--retry-all]  fetch LRCLIB lyrics for the library (or DIR)
 """
 from __future__ import annotations
 
@@ -14,7 +15,7 @@ import os
 import sys
 from pathlib import Path
 
-from . import art, pipeline, server
+from . import art, lyrics, pipeline, server
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -30,6 +31,9 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser('index')
     ar = sub.add_parser('art')
     ar.add_argument('folder', type=Path)
+    ly = sub.add_parser('lyrics')
+    ly.add_argument('folder', type=Path, nargs='?')
+    ly.add_argument('--retry-all', action='store_true', help='also retry tracks checked recently')
     a = ap.parse_args(argv)
 
     if a.cmd == 'serve':
@@ -43,6 +47,12 @@ def main(argv: list[str] | None = None) -> int:
     elif a.cmd == 'art':
         rep = art.fix_album_art(a.folder, pipeline.audio_files(a.folder))
         print(json.dumps(rep, ensure_ascii=False, indent=2))
+    elif a.cmd == 'lyrics':
+        s = pipeline.Settings()
+        tracks = lyrics.library_tracks(a.folder or s.music_dir)
+        logging.info('lyrics: %d tracks', len(tracks))
+        counts = lyrics.fetch(tracks, s.data_dir, retry_all=a.retry_all, progress_every=100)
+        print(json.dumps(counts, indent=2))
     return 0
 
 
