@@ -9,6 +9,7 @@ import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path, PurePosixPath
 
+from . import inbox
 from .pipeline import Settings, import_folder
 
 log = logging.getLogger(__name__)
@@ -17,8 +18,10 @@ log = logging.getLogger(__name__)
 SLSKD_DOWNLOADS = PurePosixPath(os.environ.get('SLSKD_DOWNLOADS_DIR', '/app/downloads'))
 SETTLE_SECONDS = float(os.environ.get('SETTLE_SECONDS', '10'))
 
-_jobs: queue.Queue[Path] = queue.Queue()
-_pending: set[Path] = set()
+INBOX_DIR = os.environ.get('INBOX_DIR', '')
+
+_jobs: queue.Queue[tuple[Path, str]] = queue.Queue()
+_pending: set[Path] = set()  # queued or being imported
 _lock = threading.Lock()
 
 
@@ -55,29 +58,36 @@ def map_path(slskd_path: str, s: Settings) -> Path | None:
     return local
 
 
-def enqueue(folder: Path) -> bool:
+def enqueue(folder: Path, source: str = 'slskd') -> bool:
     with _lock:
         if folder in _pending:
             return False
         _pending.add(folder)
-    _jobs.put(folder)
+    _jobs.put((folder, source))
     return True
 
 
 def worker(s: Settings, stop: threading.Event) -> None:
     while not stop.is_set():
         try:
-            folder = _jobs.get(timeout=1)
+            folder, source = _jobs.get(timeout=1)
         except queue.Empty:
             continue
-        stop.wait(SETTLE_SECONDS)  # let slskd finish renaming/closing the last file
-        with _lock:
-            _pending.discard(folder)
+        if source == 'slskd':
+            stop.wait(SETTLE_SECONDS)  # let slskd finish renaming/closing the last file
+        result: dict = {'status': 'failed with an error, see the container log'}
         try:
-            import_folder(folder, s)
+            result = import_folder(folder, s)
         except Exception:
             log.exception('import of %s failed', folder)
         finally:
+            try:
+                if source == 'inbox' and folder.exists():  # anything left is not imported
+                    inbox.park(folder, Path(INBOX_DIR), result)
+            except Exception:
+                log.exception('could not move %s out of the inbox', folder)
+            with _lock:
+                _pending.discard(folder)
             _jobs.task_done()
 
 
@@ -129,6 +139,9 @@ def serve(host: str = '0.0.0.0', port: int = 8080) -> None:
     s = Settings()
     stop = threading.Event()
     threading.Thread(target=worker, args=(s, stop), daemon=True, name='importer').start()
+    if INBOX_DIR:
+        threading.Thread(target=inbox.watch, args=(Path(INBOX_DIR), enqueue, stop),
+                         daemon=True, name='inbox').start()
     Handler.settings = s
     httpd = ThreadingHTTPServer((host, port), Handler)
     log.info('listening on %s:%d; downloads %s -> %s; library %s; fanart.tv %s',

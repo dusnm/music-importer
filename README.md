@@ -3,10 +3,30 @@
 Imports albums downloaded by slskd into the music library at `/srv/media/music`, which Navidrome serves.
 
 ```
-slskd ──DownloadDirectoryComplete webhook──▶ music-importer ──▶ /music/Album Artist/Album (Year)/NN Title.ext
+slskd ──DownloadDirectoryComplete webhook──▶ ┐
+                                             ├─▶ music-importer ──▶ /music/Album Artist/Album (Year)/NN Title.ext
+drop folder (SFTP) ──settled for 60 s──────▶ ┘
 ```
 
-For each completed download folder it does the following:
+## Drop folder
+
+Copy album folders into **`/srv/media/music-inbox`**. On the server this is also reachable as `~/music-inbox`.
+
+To use it from GNOME Files on the laptop:
+1. Go to *Other Locations* → *Connect to Server*.
+2. Enter `sftp://you@server/srv/media/music-inbox`.
+3. Bookmark it with Ctrl+D.
+
+With sshfs: `sshfs you@server:/srv/media/music-inbox ~/music-inbox`
+
+How the drop folder works:
+- **Starting the import:** SFTP has no "copy finished" event. A top-level folder is imported once nothing in it has changed for `INBOX_STABLE_SECONDS`, 60 s by default, checked every 10 s. Changes are tracked through each file's ctime, count and size. ctime catches every write, even when the client restores the original modification times.
+- **One album or many:** a folder may hold one album, an album with `CD1`/`CD2` subfolders, or several album folders. Each album is matched separately.
+- **Success:** the folder disappears from the inbox once its albums are in the library.
+- **Anything not imported:** the remaining files are moved to `_not-imported/<folder>`, with a `<folder>.txt` note giving the reason (no confident match, duplicate, or leftover files). To retry, move the folder back into the inbox.
+- **Ignored:** loose files directly in the inbox, and folders whose names start with `.` or `_`.
+
+For each completed folder, whether from slskd or the drop folder, it does the following:
 
 1. **Match by tags.** `beet import -q` matches the folder against MusicBrainz. The match is applied only when it is strong: at least 96% similar, with no missing or unmatched tracks. Applying it rewrites the tags and moves the files into the library.
 2. **Match by fingerprints if the tags fail.** This typically happens with untagged files.
@@ -47,6 +67,7 @@ docker-compose logs -f                                   # what it is doing
 tail -n 5 data/imports.jsonl                             # one JSON line per processed folder
 docker-compose exec music-importer music-importer import "/downloads/<folder>"              # retry a folder
 docker-compose exec music-importer music-importer import "/downloads/<folder>" --mbid <id>  # force a release
+docker-compose exec music-importer music-importer import "/inbox/_not-imported/<folder>" --mbid <id>
 docker-compose exec music-importer music-importer art "/music/<Artist>/<Album (Year)>"      # redo cover art only
 docker-compose exec music-importer music-importer index  # re-register the library (read-only)
 ```
@@ -58,6 +79,7 @@ docker-compose exec music-importer music-importer index  # re-register the libra
 | Path | Purpose |
 |---|---|
 | `src/music_importer/server.py` | Webhook endpoint (`POST /webhook`, `GET /health`) and the import queue, one folder at a time |
+| `src/music_importer/inbox.py` | Drop-folder watcher: completion detection and parking folders that were not imported |
 | `src/music_importer/pipeline.py` | beets runs, the fingerprint fallback, cover clean-up and download clean-up |
 | `src/music_importer/fingerprint.py` | AcoustID identification and provisional tags |
 | `src/music_importer/art.py` | Cover normalisation (same rules as the library clean-up) |
@@ -69,6 +91,7 @@ docker-compose exec music-importer music-importer index  # re-register the libra
 The deployment lives in `~/.local/share/docker/music-importer`:
 
 - **`docker-compose.yml`:** builds the image `music-importer:<version>` from this folder. The container runs as `1000:1000`.
+- **Mounts:** `/srv/media/music-inbox` is mounted as `/inbox` (environment variable `INBOX_DIR`). Leave `INBOX_DIR` unset to turn the drop folder off.
 - **Network:** the container joins the `slskd_default` network and publishes no ports.
 - **`.env`** (mode 600): `FANARTTV_API_KEY` is optional; leave it empty to use only the Cover Art Archive.
 - **`data/`:** holds the beets library DB (`library.db`), `beets-import.log` and `imports.jsonl`.
