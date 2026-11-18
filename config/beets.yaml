@@ -1,0 +1,62 @@
+# beets configuration used by music-importer.
+# Values marked "set at runtime" are filled in from the environment by music_importer.beets.
+
+directory: /music            # set at runtime from MUSIC_DIR
+library: /data/library.db    # set at runtime from DATA_DIR
+
+# No chroma plugin: on well-tagged files it can push a perfect match below the auto-apply
+# threshold. Fingerprinting is done by music_importer.fingerprint only when tags fail.
+plugins: [musicbrainz, fromfilename, fetchart, lastgenre, inline]
+
+import:
+  move: yes                  # downloads are moved, not copied, into the library
+  write: yes
+  quiet: yes                 # never prompt
+  quiet_fallback: skip       # not confident about a match -> leave the folder alone
+  duplicate_action: skip
+  incremental: no
+  resume: no
+  log: /data/beets-import.log   # set at runtime
+  languages: [en]
+
+match:
+  strong_rec_thresh: 0.04    # beets default: auto-apply only matches >= 96 % similar
+
+ui:
+  color: no
+
+per_disc_numbering: yes
+original_date: no
+
+item_fields:
+  multidisc: 1 if (disctotal or 1) > 1 else 0
+  album_year: original_year or year or ''
+
+# Library convention: Album Artist/Album (Year)/[CDn/]NN Title.ext
+paths:
+  default: $albumartist/$album%if{$album_year, ($album_year)}/%if{$multidisc,CD$disc/}$track $title
+  comp: Various Artists/$album%if{$album_year, ($album_year)}/%if{$multidisc,CD$disc/}$track $title
+  singleton: Non-Album/$artist/$title
+
+fetchart:
+  auto: yes
+  cautious: no
+  minwidth: 600              # smaller folder images fall through to online sources
+  enforce_ratio: 2%
+  sources: [filesystem, coverart, fanarttv]
+  fanarttv_key: ''           # set at runtime from FANARTTV_API_KEY
+  store_source: no
+
+art_filename: cover
+
+lastgenre:
+  auto: yes
+  source: album
+  count: 1
+  force: no                  # keep a genre the files already have
+
+musicbrainz:
+  # Popular albums have dozens of editions; with beets' default of 5 the edition that
+  # matches the download (e.g. with its bonus track) is often not among the candidates,
+  # and a candidate with unmatched tracks is never auto-applied (match.max_rec).
+  search_limit: 20
