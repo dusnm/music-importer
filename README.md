@@ -23,7 +23,7 @@ How the drop folder works:
 - **Starting the import:** SFTP has no "copy finished" event. A top-level folder is imported once nothing in it has changed for `INBOX_STABLE_SECONDS`, 60 s by default, checked every 10 s. Changes are tracked through each file's ctime, count and size. ctime catches every write, even when the client restores the original modification times.
 - **One album or many:** a folder may hold one album, an album with `CD1`/`CD2` subfolders, or several album folders. Each album is matched separately.
 - **Success:** the folder disappears from the inbox once its albums are in the library.
-- **Anything not imported:** the remaining files are moved to `_not-imported/<folder>`, with a `<folder>.txt` note giving the reason (no confident match, duplicate, or leftover files). To retry, move the folder back into the inbox.
+- **Anything not imported:** the remaining files are moved to `_not-imported/<folder>`, with a `<folder>.txt` note giving the reason (no confident match, or leftover files). To retry, move the folder back into the inbox.
 - **Ignored:** loose files directly in the inbox, and folders whose names start with `.` or `_`.
 
 For each completed folder, whether from slskd or the drop folder, it does the following:
@@ -43,9 +43,22 @@ For each completed folder, whether from slskd or the drop folder, it does the fo
 
 Navidrome's file watcher picks up the new folder within about 30 s.
 
-The following are left in `slskd/data/downloads` and logged:
-- **No confident match:** nothing is changed, apart from the provisional tags step 2 may have written.
-- **Duplicates:** an album already in the beets library is skipped.
+A folder with no confident match is left in `slskd/data/downloads` (or moved to the inbox's `_not-imported/`) and logged. Nothing in it is changed, apart from the provisional tags step 2 may have written.
+
+## Duplicates: newer wins
+
+When an imported album has the same album artist and album title as one already in the library, the new copy replaces the old one. This works the same for slskd and the drop folder.
+
+- `import.duplicate_action: remove` makes beets remove the old album before moving the new one in. The new copy can therefore take over the same `Artist/Album (Year)` folder.
+- The `musicimporter` beets plugin (`beetsplug_local/musicimporter.py`) changes how the old album is removed. Instead of deleting files one by one, it moves the old album's whole folder, including booklets and other extras, to `/srv/media/music-replaced/<date time> <Artist> - <Album>/`. It also logs the move to `data/replaced.jsonl`.
+- Set-aside copies are deleted after `REPLACED_KEEP_DAYS` (30). The purge runs after each import.
+- To undo a replacement within that window, move the folder back into the library, then drop it into the inbox or run `music-importer import` on it.
+
+Duplicates are found by exact album artist and album title, as stored in the beets database. Two things follow from that:
+- An older album whose tags spell the title differently is not detected, and both copies stay. For example `Mezmerize` vs `Mesmerize`, or a title with `(Remastered)` added.
+- Editions with different titles, such as *Meteora* and *Meteora (20th Anniversary Edition)*, count as different albums.
+
+Newer wins even when the new copy is lower quality, for example MP3 replacing FLAC. beets 2.14 also offers `duplicate_action: upgrade`, which keeps the better copy of each track instead.
 
 ## Library layout
 

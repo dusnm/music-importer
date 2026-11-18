@@ -12,6 +12,7 @@ COPY requirements.lock pyproject.toml ./
 RUN pip install --no-cache-dir -r requirements.lock
 COPY src ./src
 COPY config ./config
+COPY beetsplug_local ./beetsplug_local
 RUN pip install --no-cache-dir --no-deps .
 
 ENV PYTHONUNBUFFERED=1 \

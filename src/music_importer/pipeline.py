@@ -30,6 +30,8 @@ class Settings:
     data_dir: Path = Path(os.environ.get('DATA_DIR', '/data'))
     fanarttv_key: str = field(default_factory=lambda: os.environ.get('FANARTTV_API_KEY', ''))
     remove_leftovers: bool = os.environ.get('REMOVE_LEFTOVERS', '1') == '1'
+    replaced_dir: Path = Path(os.environ.get('REPLACED_DIR', '/replaced'))
+    replaced_keep_days: float = float(os.environ.get('REPLACED_KEEP_DAYS', '30'))
 
     @property
     def db(self) -> Path:
@@ -43,6 +45,8 @@ def beets_config(s: Settings, *, index_only: bool = False) -> Path:
     cfg['library'] = str(s.db)
     cfg['import']['log'] = str(s.data_dir / 'beets-import.log')
     cfg['fetchart']['fanarttv_key'] = s.fanarttv_key
+    cfg['musicimporter'] = {'replaced_dir': str(s.replaced_dir),
+                            'replaced_log': str(s.data_dir / 'replaced.jsonl')}
     if not s.fanarttv_key:
         cfg['fetchart']['sources'] = [x for x in cfg['fetchart']['sources'] if x != 'fanarttv']
     if index_only:
@@ -145,6 +149,7 @@ def import_folder(folder: Path, s: Settings | None = None, *, search_id: str | N
         return _record(s, result)
 
     t0 = time.time() - 1
+    replaced_mark = _size(s.data_dir / 'replaced.jsonl')
     args = ['import', '-q']
     if search_id:
         args += ['--search-id', search_id]
@@ -176,9 +181,42 @@ def import_folder(folder: Path, s: Settings | None = None, *, search_id: str | N
         rep['tracks'] = len(album_tracks)
         result['albums'].append(rep)
         log.info('imported %s (%d tracks): %s', root, len(album_tracks), '; '.join(rep['actions']))
+    replaced = _new_lines(s.data_dir / 'replaced.jsonl', replaced_mark)
+    if replaced:
+        result['replaced'] = replaced
+        for r in replaced:
+            log.info('replaced older copy %s (kept in %s for %g days)', r['from'], r['to'],
+                     s.replaced_keep_days)
+    purge_replaced(s)
     result['status'] = 'imported'
     result['download'] = clean_download(folder) if s.remove_leftovers else 'kept'
     return _record(s, result)
+
+
+def _size(path: Path) -> int:
+    return path.stat().st_size if path.exists() else 0
+
+
+def _new_lines(path: Path, start: int) -> list[dict]:
+    if not path.exists():
+        return []
+    with open(path, 'rb') as fh:
+        fh.seek(start)
+        return [json.loads(line) for line in fh.read().decode().splitlines() if line.strip()]
+
+
+def purge_replaced(s: Settings) -> None:
+    """Delete set-aside album copies older than REPLACED_KEEP_DAYS."""
+    if not s.replaced_dir.is_dir():
+        return
+    cutoff = time.time() - s.replaced_keep_days * 86400
+    for entry in s.replaced_dir.iterdir():
+        try:
+            if entry.stat().st_mtime < cutoff:
+                shutil.rmtree(entry) if entry.is_dir() else entry.unlink()
+                log.info('purged replaced copy %s', entry.name)
+        except OSError as e:
+            log.warning('could not purge %s: %r', entry, e)
 
 
 def index_library(s: Settings | None = None) -> dict:

@@ -6,14 +6,15 @@ library: /data/library.db    # set at runtime from DATA_DIR
 
 # No chroma plugin: on well-tagged files it can push a perfect match below the auto-apply
 # threshold. Fingerprinting is done by music_importer.fingerprint only when tags fail.
-plugins: [musicbrainz, fromfilename, fetchart, lastgenre, inline]
+pluginpath: [/app/beetsplug_local]
+plugins: [musicbrainz, fromfilename, fetchart, lastgenre, inline, musicimporter]
 
 import:
   move: yes                  # downloads are moved, not copied, into the library
   write: yes
   quiet: yes                 # never prompt
   quiet_fallback: skip       # not confident about a match -> leave the folder alone
-  duplicate_action: skip
+  duplicate_action: remove   # newer wins: the older copy is set aside by the musicimporter plugin
   incremental: no
   resume: no
   log: /data/beets-import.log   # set at runtime
@@ -37,6 +38,10 @@ paths:
   default: $albumartist/$album%if{$album_year, ($album_year)}/%if{$multidisc,CD$disc/}$track $title
   comp: Various Artists/$album%if{$album_year, ($album_year)}/%if{$multidisc,CD$disc/}$track $title
   singleton: Non-Album/$artist/$title
+
+musicimporter:
+  replaced_dir: /replaced                 # set at runtime from REPLACED_DIR
+  replaced_log: /data/replaced.jsonl      # set at runtime
 
 fetchart:
   auto: yes
