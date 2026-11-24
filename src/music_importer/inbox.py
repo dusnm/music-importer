@@ -77,6 +77,9 @@ def park(folder: Path, inbox: Path, result: dict) -> Path | None:
         'MusicBrainz release on the server:',
         '  cd ~/.local/share/docker/music-importer && docker-compose exec music-importer \\',
         f'    music-importer import "/inbox/{NOT_IMPORTED}/{dest.name}" --mbid <release id>',
+        '',
+        'For a custom album (fan edit, own compilation) add "[as-is]" to the folder name',
+        'before moving it back: it is then imported with its own tags, without MusicBrainz.',
     ]
     dest.with_name(dest.name + '.txt').write_text('\n'.join(note) + '\n')
     log.info('moved %s to %s', folder, dest)

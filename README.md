@@ -25,6 +25,7 @@ How the drop folder works:
 - **Success:** the folder disappears from the inbox once its albums are in the library.
 - **Anything not imported:** the remaining files are moved to `_not-imported/<folder>`, with a `<folder>.txt` note giving the reason (no confident match, or leftover files). To retry, move the folder back into the inbox.
 - **Ignored:** loose files directly in the inbox, and folders whose names start with `.` or `_`.
+- **Custom albums:** put `[as-is]` anywhere in the folder name, e.g. `Metallica - ...And Justice for All (with Bass) [as-is]`. The album is then imported with the files' own tags: album name, titles, track and disc numbers stay exactly as tagged, and MusicBrainz and fingerprinting are skipped. Files are still renamed into the library layout from those tags, and still get cover art, genre (only if empty) and lyrics. The marker never appears in the library, because folder names come from the tags. For a folder that can't be renamed, such as an slskd download, use `import --as-is` instead (see [Commands](#commands)).
 
 For each completed folder, whether from slskd or the drop folder, it does the following:
 
@@ -115,6 +116,7 @@ tail -n 5 data/imports.jsonl                             # one JSON line per pro
 docker-compose exec music-importer music-importer import "/downloads/<folder>"              # retry a folder
 docker-compose exec music-importer music-importer import "/downloads/<folder>" --mbid <id>  # force a release
 docker-compose exec music-importer music-importer import "/inbox/_not-imported/<folder>" --mbid <id>
+docker-compose exec music-importer music-importer import "/downloads/<folder>" --as-is      # keep own tags, no MusicBrainz
 docker-compose exec music-importer music-importer art "/music/<Artist>/<Album (Year)>"      # redo cover art only
 docker-compose exec music-importer music-importer index  # re-register the library (read-only)
 ```

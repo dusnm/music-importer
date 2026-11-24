@@ -100,8 +100,8 @@ def strip_pictures(path: Path) -> None:
         f.tags.delall('APIC')
     elif isinstance(f, MP4):
         f.tags.pop('covr', None)
-    elif f.tags is not None:
-        f.tags.pop('metadata_block_picture', None)
+    elif f.tags is not None and 'metadata_block_picture' in f.tags:
+        del f.tags['metadata_block_picture']  # Ogg Vorbis/Opus (VComment has no dict-style pop)
     f.save()
 
 

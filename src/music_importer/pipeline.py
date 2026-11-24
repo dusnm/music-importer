@@ -19,6 +19,9 @@ log = logging.getLogger(__name__)
 
 TEMPLATE = Path(os.environ.get('BEETS_TEMPLATE', '/app/config/beets.yaml'))
 # What may be left behind in a download folder once its audio has been imported.
+# A folder named with this marker is imported with its own tags, without MusicBrainz
+# matching (custom albums, fan edits): e.g. "Metallica - ...And Justice for All (with Bass) [as-is]".
+AS_IS_MARKER = re.compile(r'\[\s*as[\s_-]?is\s*\]', re.IGNORECASE)
 LEFTOVER_OK = art.IMG | {'.txt', '.nfo', '.log', '.cue', '.m3u', '.m3u8', '.sfv', '.md5',
                          '.accurip', '.url', '.db', '.ini', '.pdf', '.lrc'}
 
@@ -58,7 +61,7 @@ def beets_config(s: Settings, *, index_only: bool = False) -> Path:
     path = Path('/tmp') / ('beets-index.yaml' if index_only else 'beets.yaml')
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, 'w') as fh:
-        yaml.safe_dump(cfg, fh, allow_unicode=True)
+        yaml.safe_dump(cfg, fh, allow_unicode=True, sort_keys=False)  # replace: order matters
     return path
 
 
@@ -140,9 +143,16 @@ def _import(s: Settings, args: list[str], folder: Path) -> tuple[subprocess.Comp
     return p, outcome
 
 
-def import_folder(folder: Path, s: Settings | None = None, *, search_id: str | None = None) -> dict:
+def is_as_is(folder: Path) -> bool:
+    return bool(AS_IS_MARKER.search(folder.name))
+
+
+def import_folder(folder: Path, s: Settings | None = None, *, search_id: str | None = None,
+                  as_is: bool | None = None) -> dict:
     s = s or Settings()
     folder = folder.resolve()
+    if as_is is None:
+        as_is = is_as_is(folder)
     result: dict = {'folder': str(folder), 'started': time.strftime('%Y-%m-%dT%H:%M:%S')}
     tracks = audio_files(folder) if folder.is_dir() else []
     if not tracks:
@@ -152,12 +162,14 @@ def import_folder(folder: Path, s: Settings | None = None, *, search_id: str | N
     t0 = time.time() - 1
     replaced_mark = _size(s.data_dir / 'replaced.jsonl')
     args = ['import', '-q']
-    if search_id:
+    if as_is:
+        args += ['-A']  # keep the files' own tags; beets still renames/moves them
+    elif search_id:
         args += ['--search-id', search_id]
     p, outcome = _import(s, args, folder)
-    result['match'] = 'tags'
+    result['match'] = 'as-is (own tags)' if as_is else 'tags'
     albums = albums_added_since(s, t0)
-    if not albums and outcome == 'skip' and p.returncode == 0 and not search_id:
+    if not albums and outcome == 'skip' and p.returncode == 0 and not search_id and not as_is:
         log.info('no confident match from tags; identifying by audio fingerprints')
         ident = fingerprint.identify(tracks)
         if ident:
