@@ -14,6 +14,7 @@ it here instead and waits. On the host, `mi` wraps this command.
   music-importer follow [ID] [--log]         watch a job (default: all active ones) live
   music-importer cancel ID...                cancel queued jobs / stop running ones
   music-importer retry ID...                 queue a finished job again
+  music-importer clear [--failed]            remove finished jobs from the list (--failed: unsuccessful only)
 """
 from __future__ import annotations
 
@@ -156,6 +157,19 @@ def cmd_retry(a) -> int:
     return 0
 
 
+def cmd_clear(a) -> int:
+    counts = jobs.clear(failed_only=a.failed)
+    if not counts:
+        print('nothing to clear')
+    else:
+        print(f'cleared {sum(counts.values())} job(s): '
+              + ', '.join(f'{n} {state}' for state, n in sorted(counts.items())))
+    active = len(jobs.recent(active_only=True))
+    if active:
+        print(f'{active} queued/running job(s) kept')
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog='music-importer')
     ap.add_argument('-v', '--verbose', action='store_true', help='show detailed log output')
@@ -188,6 +202,9 @@ def main(argv: list[str] | None = None) -> int:
     ca.add_argument('ids', type=int, nargs='+')
     rt = sub.add_parser('retry', help='queue finished jobs again')
     rt.add_argument('ids', type=int, nargs='+')
+    cl = sub.add_parser('clear', help='remove finished jobs from the list (queued and running ones stay)')
+    cl.add_argument('--failed', action='store_true',
+                    help='only unsuccessful ones (failed, cancelled, interrupted); keep the done ones')
     a = ap.parse_args(argv)
 
     # The server logs everything; interactive commands only show warnings unless -v.
@@ -224,6 +241,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_cancel(a)
     elif a.cmd == 'retry':
         return cmd_retry(a)
+    elif a.cmd == 'clear':
+        return cmd_clear(a)
     return 0
 
 

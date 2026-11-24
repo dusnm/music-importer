@@ -178,6 +178,8 @@ releases (one job per release). slskd webhooks and the inbox watcher create jobs
   mi follow --log       # ...and print its log lines as they come
   mi cancel 42 43       # a queued job is dropped; a running one stops at the next safe point
   mi retry 42           # queue a failed, cancelled or interrupted job again
+  mi clear              # remove all finished jobs from the list
+  mi clear --failed     # only the unsuccessful ones (failed, cancelled, interrupted)
   ```
 
 - **Marks:** `…` queued, `▶` running, `✓` done, `✗` failed, `-` cancelled, `!` interrupted.
@@ -186,7 +188,7 @@ releases (one job per release). slskd webhooks and the inbox watcher create jobs
   - Jobs are stored in `data/jobs.db`, so queued jobs survive a restart or redeploy.
   - On `docker stop`, the server takes no new jobs and lets the running one finish, for up to `stop_grace_period`, which is 2 minutes.
   - A job that was still cut off is marked `interrupted`; `mi retry` queues it again.
-- **History:** the last 1000 finished jobs are kept.
+- **History:** the last 1000 finished jobs are kept. `mi clear` empties the list sooner; it never removes queued or running jobs.
 
 ## Bandcamp
 

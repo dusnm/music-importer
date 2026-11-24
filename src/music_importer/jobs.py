@@ -105,6 +105,17 @@ def cancel(job_id: int) -> str:
         return f'already {row["state"]}'
 
 
+def clear(*, failed_only: bool = False) -> dict[str, int]:
+    """Delete finished jobs (never queued or running ones). Returns counts per state."""
+    states = ('failed', 'cancelled', 'interrupted') if failed_only else FINISHED
+    marks = ','.join('?' * len(states))
+    with db() as con:
+        counts = dict(con.execute(f'SELECT state, COUNT(*) FROM jobs WHERE state IN ({marks}) '
+                                  'GROUP BY state', states).fetchall())
+        con.execute(f'DELETE FROM jobs WHERE state IN ({marks})', states)
+    return counts
+
+
 def retry(job_id: int) -> tuple[int, bool] | None:
     row = get(job_id)
     if row is None:
