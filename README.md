@@ -206,6 +206,26 @@ releases (one job per release). slskd webhooks and the inbox watcher create jobs
   - A job that was still cut off is marked `interrupted`; `mi retry` queues it again.
 - **History:** the last 1000 finished jobs are kept. `mi jobs clear` empties the list sooner; it never removes queued or running jobs.
 
+## Soulseek search
+
+`mi slskd search` searches Soulseek through slskd and queues album downloads, without opening slskd's web UI:
+
+```bash
+mi slskd search iced earth plagues of babylon          # list album folders, pick to download
+mi slskd search iced earth plagues of babylon --flac   # only lossless folders
+mi slskd search ... --pick 1                           # queue number 1 without asking (scripts)
+mi slskd downloads                                     # what slskd is downloading
+```
+
+- **Results:** the search runs for up to 45 s (`SLSKD_SEARCH_SECONDS`). Matching files are grouped into folders, one per album as a rule.
+- **Sorting:** free upload slot first, then the user's upload speed, then their queue length.
+- **What the list shows:** slot, speed, quality (e.g. `FLAC 16/44.1`, `FLAC 24/192`, `MP3 V320`), track count and size, so single-track matches and huge hi-res rips stand out.
+- **Queuing:**
+  - Picking a folder, e.g. `1` or `1,3-4`, asks that user for the folder's full contents and queues all of it. Covers, logs and tracks that didn't match the search come along.
+  - When slskd completes the folder, its webhook hands it to the importer as with any download. Watch with `mi jobs`.
+- **Multi-disc albums:** slskd saves every remote folder under its own name, so an album whose discs sit in `CD1`/`CD2` subfolders arrives as separate folders. Queue the album's parent folder from slskd's web UI instead, or combine the discs and drop them into the inbox.
+- **Setup:** a readwrite API key in slskd's `slskd.yml` (`web.authentication.api_keys`, limited to the Docker network shared with the importer), and the same key in the importer's `.env` as `SLSKD_API_KEY`, with `SLSKD_URL=http://slskd:5030`.
+
 ## Bandcamp
 
 Imports releases from **your own Bandcamp collection**: purchases and claimed free or
@@ -287,7 +307,7 @@ of this project (`MUSIC_IMPORTER_SRC`). What it needs:
   - `/data`: state, including the beets DB `library.db`, `beets-import.log`, `imports.jsonl`, `jobs.db` and `lyrics.db`.
 - **Network:** the container joins slskd's network, so slskd can call `http://music-importer:8080/webhook`. It publishes no ports.
 - **Environment:** see the `environment:` block of that compose file.
-- **Secrets:** both optional. `FANARTTV_API_KEY` adds fanart.tv as a cover source; `BANDCAMP_COOKIES` enables `mi bandcamp`.
+- **Secrets:** all optional. `FANARTTV_API_KEY` adds fanart.tv as a cover source; `BANDCAMP_COOKIES` enables `mi bandcamp`; `SLSKD_URL` and `SLSKD_API_KEY` enable `mi slskd`.
 - **Stopping:** `stop_grace_period: 2m`, so a running job can finish on `docker stop`.
 
 The slskd side is set in `slskd.yml` under `integrations.webhooks.music_importer`. It sends `DownloadDirectoryComplete` events to `http://music-importer:8080/webhook`.

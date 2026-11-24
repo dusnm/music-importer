@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "music-importer"
-version = "0.10.0"
+version = "0.11.0"
 description = "Imports music from slskd, a drop folder and Bandcamp into a beets-tagged library, with cover art and lyrics"
 requires-python = ">=3.12,<3.15"
 license = "MIT"

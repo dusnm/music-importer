@@ -9,6 +9,8 @@ it here instead and waits. On the host, `mi` wraps this command.
   music-importer lyrics [DIR] [--retry-all] [--fg]  fetch LRCLIB lyrics for the library (or DIR)
   music-importer retag DIR [--mbid ID] [--fg] match a library album against MusicBrainz again
   music-importer find WORDS... [-n N]        search the library's album folders
+  music-importer slskd search WORDS... [--flac] [--pick N]   search Soulseek, queue album downloads
+  music-importer slskd downloads             what slskd is downloading
   (art, lyrics and retag also take search words instead of DIR, e.g. retag plagues babylon)
   music-importer bandcamp [...]              your Bandcamp collection (see bandcamp --help)
   music-importer index                       register the existing library in the beets DB
@@ -29,7 +31,7 @@ import sys
 import time
 from pathlib import Path
 
-from . import bandcamp, jobs, libsearch, pipeline, server, tasks
+from . import bandcamp, jobs, libsearch, pipeline, server, slsk, tasks
 
 
 def _queue(kind: str, title: str, params: dict) -> int:
@@ -196,6 +198,7 @@ def main(argv: list[str] | None = None) -> int:
     rt_.add_argument('folder', nargs='+', help='album folder, or words to search the library for')
     rt_.add_argument('--mbid', help='MusicBrainz release id (or URL) to use instead of searching')
     bandcamp.add_parser(sub)
+    slsk.add_parser(sub)
     fd = sub.add_parser('find', help='search the library\'s album folders')
     fd.add_argument('words', nargs='+')
     fd.add_argument('-n', type=int, default=15, help='at most this many results (default 15)')
@@ -259,6 +262,8 @@ def main(argv: list[str] | None = None) -> int:
         for _, path in hits:
             print(path.relative_to(music))
         return 0
+    elif a.cmd == 'slskd':
+        return slsk.main(a)
     elif a.cmd == 'bandcamp':
         return bandcamp.main(a)
     elif a.cmd == 'jobs':
