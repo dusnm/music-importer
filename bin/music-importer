@@ -1,0 +1,210 @@
+#!/bin/bash
+# Host-side front end for the music-importer container.
+# Lives in ~/projects/music-importer/bin, symlinked to ~/.local/bin/music-importer.
+#
+# Anything that isn't a host command below is passed to the CLI inside the container,
+# with host paths (e.g. ~/music-inbox/Some Album) translated to container paths.
+
+set -euo pipefail
+
+DEPLOY_DIR="${MUSIC_IMPORTER_DEPLOY:-$HOME/.local/share/docker/music-importer}"
+COMPOSE_FILE="$DEPLOY_DIR/docker-compose.yml"
+SERVICE="music-importer"
+# The project folder is wherever this script really lives (it's usually run via a symlink).
+PROJECT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
+
+# host path prefix -> container path (most specific first)
+PATH_MAP=(
+    "/srv/media/music-inbox=/inbox"
+    "/srv/media/music-replaced=/replaced"
+    "/srv/media/music=/music"
+    "$HOME/.local/share/docker/slskd/data/downloads=/downloads"
+    "$DEPLOY_DIR/data=/data"
+)
+
+error() {
+    echo "music-importer: $*" >&2
+    exit 1
+}
+
+dc() {
+    docker-compose -f "$COMPOSE_FILE" "$@"
+}
+
+usage() {
+    cat <<'EOF'
+Usage: music-importer COMMAND [ARGS...]
+
+Importing (run inside the container):
+  import DIR [--mbid ID | --as-is]   import a folder now (host or container path)
+  art DIR                            redo cover art of an album folder
+  lyrics [DIR] [--retry-all]         fetch lyrics for the library or one folder
+  index                              re-register the library in the beets DB
+  bandcamp                           browse your Bandcamp collection and pick releases
+  bandcamp list [FILTER]             list what you own on Bandcamp
+  bandcamp album URL|TEXT...         import releases you own
+  bandcamp artist URL|NAME           import (a choice of) an artist's releases you own
+
+On the host:
+  status                             container state, inbox and the last imports
+  history [N]                        the last N imports (default 10)
+  logs [-f] [N]                      container log (last N lines, default 100; -f follows)
+  restart                            restart the container
+  deploy                             rebuild the image from the project and recreate it
+  shell                              a shell inside the container
+  help                               this text
+
+Host paths are translated, e.g. ~/music-inbox/_not-imported/Foo -> /inbox/_not-imported/Foo,
+/srv/media/music/... -> /music/..., slskd downloads -> /downloads/...
+Any other arguments are passed through unchanged; `music-importer COMMAND --help` shows
+the options of a container command.
+EOF
+}
+
+# Translate one argument if it names an existing host path under a mapped folder.
+to_container_path() {
+    local arg="$1" real entry host ctr
+    if [[ "$arg" != -* ]] && [[ -e "$arg" ]]; then
+        real="$(readlink -f -- "$arg")"
+        for entry in "${PATH_MAP[@]}"; do
+            host="${entry%%=*}"
+            ctr="${entry#*=}"
+            if [[ "$real" == "$host" || "$real" == "$host"/* ]]; then
+                printf '%s\n' "$ctr${real#"$host"}"
+                return
+            fi
+        done
+    fi
+    printf '%s\n' "$arg"
+}
+
+running() {
+    [[ "$(docker inspect -f '{{.State.Running}}' "$SERVICE" 2>/dev/null)" == "true" ]]
+}
+
+in_container() {
+    running || error "the $SERVICE container is not running (try: music-importer restart)"
+    local args=() a tty=()
+    for a in "$@"; do
+        args+=("$(to_container_path "$a")")
+    done
+    # Interactive pickers need a terminal; scripts and pipes must not get one.
+    [[ -t 0 && -t 1 ]] || tty=(-T)
+    exec docker-compose -f "$COMPOSE_FILE" exec "${tty[@]}" "$SERVICE" music-importer "${args[@]}"
+}
+
+history() {
+    local n="${1:-10}" log="$DEPLOY_DIR/data/imports.jsonl"
+    [[ "$n" =~ ^[0-9]+$ ]] || error "history: N must be a number"
+    [[ -f "$log" ]] || { echo "no imports yet"; return; }
+    tail -n "$((n * 2))" "$log" | python3 -c "$(cat <<'PY'
+import json, sys
+records = [json.loads(line) for line in sys.stdin if line.strip()]
+for i, r in enumerate(records):
+    nxt = records[i + 1] if i + 1 < len(records) else None
+    if (nxt and r.get('status') != 'imported' and nxt.get('folder') == r.get('folder')
+            and nxt.get('status') == 'imported'):
+        continue  # a first attempt that a fallback (e.g. as-is) then imported
+    when = r.get('finished', r.get('started', '?')).replace('T', ' ')
+    print(f"{when}  {r.get('status', '?')}  ({r.get('match', '-')})")
+    print(f"    from {r['folder']}")
+    for a in r.get('albums', []):
+        print(f"    -> {a['dir']}  [{a.get('tracks', '?')} tracks]")
+    for x in r.get('replaced', []):
+        print(f"    replaced {x.get('from', '?')}")
+    if r.get('download') not in (None, 'removed', 'gone'):
+        print(f"    leftover folder: {r['download']}")
+PY
+)" | python3 -c "$(cat <<'PY'
+import sys
+# keep the last N entries (an entry starts with a non-indented line)
+n = int(sys.argv[1]); entries = []
+for line in sys.stdin:
+    if not line.startswith(' '):
+        entries.append([])
+    if entries:
+        entries[-1].append(line)
+sys.stdout.write(''.join(''.join(e) for e in entries[-n:]))
+PY
+)" "$n"
+}
+
+status() {
+    local state version
+    state="$(docker inspect -f '{{.State.Status}}{{if .State.Health}} ({{.State.Health.Status}}){{end}} since {{.State.StartedAt}}' "$SERVICE" 2>/dev/null || echo 'not created')"
+    version="$(docker inspect -f '{{.Config.Image}}' "$SERVICE" 2>/dev/null || echo '?')"
+    echo "container: $SERVICE $state"
+    echo "image:     $version (project: $(sed -n 's/^version = "\(.*\)"/\1/p' "$PROJECT_DIR/pyproject.toml"))"
+    local inbox="/srv/media/music-inbox"
+    echo
+    echo "inbox ($inbox):"
+    local found=0 d
+    for d in "$inbox"/*/; do
+        [[ -d "$d" ]] || continue
+        d="${d%/}"
+        [[ "$(basename "$d")" == _* ]] && continue
+        echo "    waiting: $(basename "$d")"
+        found=1
+    done
+    for d in "$inbox"/_not-imported/*/; do
+        [[ -d "$d" ]] || continue
+        echo "    NOT IMPORTED: $(basename "${d%/}")  (see the .txt note next to it)"
+        found=1
+    done
+    (( found )) || echo "    empty"
+    echo
+    echo "last imports:"
+    history 5 | sed 's/^/    /'
+}
+
+deploy() {
+    local version image
+    version="$(sed -n 's/^version = "\(.*\)"/\1/p' "$PROJECT_DIR/pyproject.toml")"
+    [[ -n "$version" ]] || error "could not read the version from $PROJECT_DIR/pyproject.toml"
+    image="music-importer:$version"
+    if ! grep -q "image: $image\$" "$COMPOSE_FILE"; then
+        echo "updating $COMPOSE_FILE to $image"
+        sed -i "s|^\(\s*image:\s*\)music-importer:.*|\1$image|" "$COMPOSE_FILE"
+    fi
+    dc build
+    dc up -d
+}
+
+cmd="${1:-help}"
+case "$cmd" in
+    help|-h|--help)
+        usage
+        ;;
+    status)
+        status
+        ;;
+    history)
+        history "${2:-10}"
+        ;;
+    logs)
+        shift
+        follow=()
+        lines=100
+        for a in "$@"; do
+            case "$a" in
+                -f|--follow) follow=(-f) ;;
+                *[!0-9]*) error "logs: unexpected argument '$a'" ;;
+                *) lines="$a" ;;
+            esac
+        done
+        exec docker-compose -f "$COMPOSE_FILE" logs --tail "$lines" "${follow[@]}" "$SERVICE"
+        ;;
+    restart)
+        dc restart "$SERVICE"
+        ;;
+    deploy)
+        deploy
+        ;;
+    shell)
+        running || error "the $SERVICE container is not running"
+        exec docker-compose -f "$COMPOSE_FILE" exec "$SERVICE" bash
+        ;;
+    *)
+        in_container "$@"
+        ;;
+esac

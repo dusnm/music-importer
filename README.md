@@ -67,9 +67,9 @@ Tracks are skipped when they:
 Each track's result is stored in `data/lyrics.db` as one of: `synced`, `plain`, `embedded` (lyrics already stored in the file), `instrumental`, `not-found` or `no-tags`. A track that was not found, was instrumental, or had no tags is retried only after `LYRICS_RETRY_DAYS` (30). Requests are spaced 0.5 s apart.
 
 ```bash
-docker-compose exec music-importer music-importer lyrics                       # whole library (resumable)
-docker-compose exec music-importer music-importer lyrics "/music/<Artist>/<Album (Year)>"
-docker-compose exec music-importer music-importer lyrics --retry-all           # ignore the 30-day memory
+music-importer lyrics                       # whole library (resumable)
+music-importer lyrics "/music/<Artist>/<Album (Year)>"
+music-importer lyrics --retry-all           # ignore the 30-day memory
 ```
 
 To remove all fetched lyrics again, delete the `.lrc` files and the `.txt` files recorded as `plain`:
@@ -108,18 +108,24 @@ Titles follow MusicBrainz spelling, for example `Everybody’s Fool` and `My Imm
 
 ## Commands
 
-Run these in `~/.local/share/docker/music-importer`:
+`bin/music-importer` is a front end for the container, symlinked to `~/.local/bin/music-importer`, so it works from any folder:
 
 ```bash
-docker-compose logs -f                                   # what it is doing
-tail -n 5 data/imports.jsonl                             # one JSON line per processed folder
-docker-compose exec music-importer music-importer import "/downloads/<folder>"              # retry a folder
-docker-compose exec music-importer music-importer import "/downloads/<folder>" --mbid <id>  # force a release
-docker-compose exec music-importer music-importer import "/inbox/_not-imported/<folder>" --mbid <id>
-docker-compose exec music-importer music-importer import "/downloads/<folder>" --as-is      # keep own tags, no MusicBrainz
-docker-compose exec music-importer music-importer art "/music/<Artist>/<Album (Year)>"      # redo cover art only
-docker-compose exec music-importer music-importer index  # re-register the library (read-only)
+music-importer status                     # container state, inbox, last imports
+music-importer history 20                 # the last 20 imports
+music-importer logs -f                    # follow the container log
+music-importer import ~/music-inbox/_not-imported/<folder> --mbid <id>   # force a release
+music-importer import "/downloads/<folder>"                              # retry an slskd folder
+music-importer import "/downloads/<folder>" --as-is      # keep own tags, no MusicBrainz
+music-importer art "/srv/media/music/<Artist>/<Album (Year)>"   # redo cover art only
+music-importer index                      # re-register the library (read-only)
+music-importer restart | deploy | shell   # restart, rebuild from this project, open a shell
+music-importer help
 ```
+
+- **Container commands:** anything that isn't a host command (`status`, `history`, `logs`, `restart`, `deploy`, `shell`) runs the CLI inside the container. `music-importer <command> --help` shows that command's options.
+- **Path translation:** host paths are translated to container paths, so a relative path works too. The inbox and `~/music-inbox` map to `/inbox`, the library to `/music`, slskd downloads to `/downloads`, and `data/` to `/data`. Container paths are passed through unchanged.
+- **Terminal:** the interactive Bandcamp picker gets a terminal when you run the command in one. In scripts and pipes it runs without one.
 
 `--mbid` takes the release id from a `https://musicbrainz.org/release/<id>` URL. Use it when a folder was left behind because no match was confident enough.
 
@@ -129,13 +135,13 @@ Imports releases from **your own Bandcamp collection**: purchases and claimed fr
 name-your-price downloads, as FLAC. Pre-orders and physical-only items are skipped.
 
 ```bash
-docker-compose exec music-importer music-importer bandcamp                      # browse and pick (full screen)
-docker-compose exec music-importer music-importer bandcamp list                 # everything you own
-docker-compose exec music-importer music-importer bandcamp list pelican         # filtered
-docker-compose exec music-importer music-importer bandcamp album https://pelican.bandcamp.com/album/australasia
-docker-compose exec music-importer music-importer bandcamp album "pelican - city of"   # part of "Artist - Title"
-docker-compose exec music-importer music-importer bandcamp artist https://pelican.bandcamp.com
-docker-compose exec music-importer music-importer bandcamp artist "Pelican"             # by name
+music-importer bandcamp                      # browse and pick (full screen)
+music-importer bandcamp list                 # everything you own
+music-importer bandcamp list pelican         # filtered
+music-importer bandcamp album https://pelican.bandcamp.com/album/australasia
+music-importer bandcamp album "pelican - city of"   # part of "Artist - Title"
+music-importer bandcamp artist https://pelican.bandcamp.com
+music-importer bandcamp artist "Pelican"             # by name
 ```
 
 **Browsing:** `bandcamp` on its own opens a full-screen checklist of your whole collection.
@@ -184,6 +190,7 @@ Talking to Bandcamp (its bot challenge, the collection API and download links) i
 | `src/music_importer/fingerprint.py` | AcoustID identification and provisional tags |
 | `src/music_importer/art.py` | Cover normalisation (same rules as the library clean-up) |
 | `config/beets.yaml` | beets configuration template; paths and the API key are filled in at runtime |
+| `bin/music-importer` | Host front end for the container, symlinked into `~/.local/bin` |
 | `requirements.lock` | Frozen dependencies, built from `pip freeze` in the base image |
 
 ## Deployment
@@ -198,11 +205,13 @@ The deployment lives in `~/.local/share/docker/music-importer`:
 
 The slskd side is set in `slskd/data/slskd.yml` under `integrations.webhooks.music_importer`. It sends `DownloadDirectoryComplete` events to `http://music-importer:8080/webhook`.
 
-To deploy a change:
+To deploy a change, bump `version` in `pyproject.toml` if you want a new image tag, then:
 
 ```bash
-cd ~/.local/share/docker/music-importer && docker-compose build && docker-compose up -d
+music-importer deploy
 ```
+
+`deploy` sets the image tag in `docker-compose.yml` to the project version, rebuilds the image and recreates the container.
 
 ## Versions
 
