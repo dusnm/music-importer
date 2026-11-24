@@ -141,7 +141,7 @@ How it behaves:
 - **Choosing releases:** `artist` lists the releases you own from that artist and asks which to import: Enter for all, `1,3-5` for some, `q` to cancel. `album` asks the same way when the text matches several releases. Pass `--yes` to take every match without asking.
 - **Matching:**
   - Each release is downloaded and unpacked into `data/bandcamp/<Artist - Title>`, then goes through the [normal import](#drop-folder).
-  - If MusicBrainz has no confident match, which is common for Bandcamp releases, it is imported with Bandcamp's own tags, as with `[as-is]`.
+  - If MusicBrainz has no confident match, which is common for Bandcamp releases, it is imported with Bandcamp's own tags, as with `[as-is]`. Bandcamp imports skip the fingerprint fallback, so a MusicBrainz guess never gets mixed into Bandcamp's tags. A track bought on its own with no album tag becomes a single named after itself.
   - `--as-is` skips MusicBrainz from the start.
 - **Re-runs:** imported purchases are recorded in `data/bandcamp.json`, so running `artist` again only fetches new releases. `--force` re-imports. When an album is re-imported, the newer copy wins as usual.
 - **Format:** `--format` picks a different download format, such as `mp3-320` or `alac`. The default is `flac`.

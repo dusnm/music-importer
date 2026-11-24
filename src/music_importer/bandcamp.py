@@ -163,18 +163,39 @@ def download(bc, item, dest: Path, fmt: str) -> Path:
                    'audio/mp4': '.m4a', 'audio/ogg': '.ogg', 'audio/wav': '.wav'}.get(content_type, '')
             if not ext:
                 raise BandcampImportError(f'unexpected download type {content_type!r}')
-            shutil.move(tmp, dest / f'{item.item_title}{ext}'.replace('/', '_'))
+            track = dest / f'{item.item_title}{ext}'.replace('/', '_')
+            shutil.move(tmp, track)
+            _tag_single(track)
     for p in dest.rglob('*'):
         if p.is_file():
             p.chmod(0o644)
     return dest
 
 
+def _tag_single(track: Path) -> None:
+    """A track bought on its own may carry no album tag: treat it as a single named after itself."""
+    from mutagen import File
+    f = File(track, easy=True)
+    if f is None or f.tags is None or not f.get('title'):
+        return
+    changed = False
+    if not (f.get('album') or [''])[0].strip():
+        f['album'] = f['title'][0]
+        changed = True
+    if not (f.get('tracknumber') or [''])[0].strip():
+        f['tracknumber'] = '1'
+        changed = True
+    if changed:
+        f.save()
+
+
 def import_item(bc, item, s: pipeline.Settings, *, fmt: str = 'flac', as_is: bool = False) -> dict:
     dest = s.data_dir / 'bandcamp' / _folder_name(item)
     log.info('downloading %s (%s)', label(item), fmt)
     download(bc, item, dest, fmt)
-    res = pipeline.import_folder(dest, s, as_is=as_is)
+    # No fingerprint fallback: Bandcamp's own tags are the authority when MusicBrainz has no
+    # confident match, and fingerprint guesses would leak MusicBrainz ids into them.
+    res = pipeline.import_folder(dest, s, as_is=as_is, fingerprint_fallback=False)
     if res['status'].startswith('not imported') and not as_is:
         log.info('no confident MusicBrainz match: importing with Bandcamp\'s own tags')
         res = pipeline.import_folder(dest, s, as_is=True)

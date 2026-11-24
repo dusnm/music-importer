@@ -148,7 +148,7 @@ def is_as_is(folder: Path) -> bool:
 
 
 def import_folder(folder: Path, s: Settings | None = None, *, search_id: str | None = None,
-                  as_is: bool | None = None) -> dict:
+                  as_is: bool | None = None, fingerprint_fallback: bool = True) -> dict:
     s = s or Settings()
     folder = folder.resolve()
     if as_is is None:
@@ -169,7 +169,8 @@ def import_folder(folder: Path, s: Settings | None = None, *, search_id: str | N
     p, outcome = _import(s, args, folder)
     result['match'] = 'as-is (own tags)' if as_is else 'tags'
     albums = albums_added_since(s, t0)
-    if not albums and outcome == 'skip' and p.returncode == 0 and not search_id and not as_is:
+    if (not albums and outcome == 'skip' and p.returncode == 0 and not search_id and not as_is
+            and fingerprint_fallback):
         log.info('no confident match from tags; identifying by audio fingerprints')
         ident = fingerprint.identify(tracks)
         if ident:
