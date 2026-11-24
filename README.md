@@ -261,8 +261,8 @@ Talking to Bandcamp (its bot challenge, the collection API and download links) i
 
 ## Deployment
 
-The container is one service of a Docker Compose setup. The reference setup is the `homelab`
-project (`services/music-importer/compose.yml` there), which builds the image from a checkout
+The container is one service of a Docker Compose setup. The reference setup is the
+[homelab](https://github.com/dusnm/homelab) project (`services/music-importer/compose.yml` there), which builds the image from a checkout
 of this project (`MUSIC_IMPORTER_SRC`). What it needs:
 
 - **Image:** built from this folder (`docker build .`); it runs as the library's owner (`user: UID:GID`).
