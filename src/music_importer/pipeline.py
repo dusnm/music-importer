@@ -13,7 +13,7 @@ from pathlib import Path
 
 import yaml
 
-from . import art, fingerprint, lyrics
+from . import art, fingerprint, jobs, lyrics
 
 log = logging.getLogger(__name__)
 
@@ -166,6 +166,7 @@ def import_folder(folder: Path, s: Settings | None = None, *, search_id: str | N
         args += ['-A']  # keep the files' own tags; beets still renames/moves them
     elif search_id:
         args += ['--search-id', search_id]
+    jobs.progress('importing with own tags (beets)' if as_is else 'matching with MusicBrainz (beets)', force=True)
     p, outcome = _import(s, args, folder)
     result['match'] = 'as-is (own tags)' if as_is else 'tags'
     albums = albums_added_since(s, t0)
@@ -176,9 +177,14 @@ def import_folder(folder: Path, s: Settings | None = None, *, search_id: str | N
         if ident:
             fingerprint.write_provisional_tags(ident)
             result['match'] = f"fingerprint -> {ident['release']['id']}"
+            jobs.progress('matching the fingerprinted release (beets)', force=True)
             p, outcome = _import(s, args, folder)
             albums = albums_added_since(s, t0)
     result['beets_exit'] = p.returncode
+    if p.returncode != 0:  # crashed part-way: don't touch or report what it may have added
+        result['status'] = f'failed: beets exited with {p.returncode} (see the log)'
+        result['download'] = 'kept'
+        return _record(s, result)
     if not albums:
         if outcome.startswith('duplicate'):
             result['status'] = 'duplicate: already in the library'
@@ -189,6 +195,7 @@ def import_folder(folder: Path, s: Settings | None = None, *, search_id: str | N
 
     result['albums'] = []
     for album_id, root, album_tracks in albums:
+        jobs.progress(f'cover art: {root.name}', force=True)
         rep = art.fix_album_art(root, album_tracks)
         cover = root / 'cover.jpg'
         set_artpath(s, album_id, cover if cover.exists() else None)

@@ -28,7 +28,7 @@ import time
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from . import pipeline
+from . import jobs, pipeline
 
 log = logging.getLogger(__name__)
 
@@ -65,6 +65,7 @@ def connect(s: pipeline.Settings):
             raise BandcampImportError('Bandcamp did not accept the login cookie (expired? log in '
                                       'again in the browser and copy a fresh "identity" cookie)')
         log.info('loading your Bandcamp collection ...')
+        jobs.progress('loading your Bandcamp collection ...')
         bc.load_purchases()
     except BandcampError as e:
         raise BandcampImportError(str(e)) from e
@@ -137,8 +138,7 @@ def _folder_name(item) -> str:
 
 
 def download(bc, item, dest: Path, fmt: str) -> Path:
-    from bandcampsync.download import (DownloadExpired, download_file, is_zip_file,
-                                       temporary_download_path, unzip_file)
+    from bandcampsync.download import is_zip_file, temporary_download_path, unzip_file
     from bandcampsync.bandcamp import BandcampError
     try:
         url = bc.get_download_file_url(item, encoding=fmt)
@@ -151,10 +151,9 @@ def download(bc, item, dest: Path, fmt: str) -> Path:
     with temporary_download_path(dest.parent) as tmp:
         try:
             with open(tmp, 'wb') as fh:
-                content_type = download_file(url, fh, bc.browser_profile, logevery=25)
-        except DownloadExpired as e:
-            raise BandcampImportError('Bandcamp wants an e-mail confirmation for this download: '
-                                      'open it once in the browser, then retry') from e
+                content_type = _stream(url, fh, bc.browser_profile, label(item))
+        except (BandcampImportError, jobs.Cancelled):
+            raise
         except Exception as e:  # network errors, corrupt responses ...
             raise BandcampImportError(f'download failed: {e}') from e
         if is_zip_file(tmp):
@@ -171,6 +170,33 @@ def download(bc, item, dest: Path, fmt: str) -> Path:
         if p.is_file():
             p.chmod(0o644)
     return dest
+
+
+def _stream(url: str, fh, profile: str, what: str) -> str:
+    """Download url into fh, reporting progress; returns the content type."""
+    from curl_cffi import requests
+    r = requests.get(url, stream=True, impersonate=profile, timeout=60)
+    try:
+        if r.status_code != 200:
+            raise BandcampImportError(f'download failed: HTTP {r.status_code}')
+        ctype = (r.headers.get('Content-Type') or '').split(';')[0].strip()
+        if ctype == 'text/html':
+            raise BandcampImportError('Bandcamp returned a web page instead of the file (the link may '
+                                      'need an e-mail confirmation: open the release once in the browser)')
+        total = int(r.headers.get('Content-Length') or 0)
+        done, t0 = 0, time.monotonic()
+        for chunk in r.iter_content(chunk_size=256 * 1024):
+            fh.write(chunk)
+            done += len(chunk)
+            rate = done / max(time.monotonic() - t0, 0.001)
+            pct = f'{done * 100 // total}% ' if total else ''
+            size = f'{done / 1e6:.0f}/{total / 1e6:.0f} MB' if total else f'{done / 1e6:.0f} MB'
+            jobs.progress(f'downloading {what}: {pct}({size}, {rate / 1e6:.1f} MB/s)')
+        if not done:
+            raise BandcampImportError('download was empty')
+        return ctype
+    finally:
+        r.close()
 
 
 def _tag_single(track: Path) -> None:
@@ -206,32 +232,55 @@ def import_item(bc, item, s: pipeline.Settings, *, fmt: str = 'flac', as_is: boo
     return res
 
 
-def run(items, bc, s: pipeline.Settings, *, fmt: str, as_is: bool, force: bool) -> int:
+def import_and_record(bc, item, s: pipeline.Settings, *, fmt: str, as_is: bool,
+                      force: bool) -> tuple[bool, str, dict | None]:
+    """Import one purchase and remember it. Returns (ok, one-line summary, import result)."""
     state = load_state(s)
+    key = str(item.item_id)
+    if key in state and not force:
+        return True, f'already imported {state[key]["imported"]}, skipped (--force to redo)', None
+    try:
+        res = import_item(bc, item, s, fmt=fmt, as_is=as_is)
+    except BandcampImportError as e:
+        return False, f'failed: {e}', None
+    dirs = ', '.join(a['dir'] for a in res.get('albums', []))
+    how = res.get('fallback') or res.get('match', '')
+    summary = (res['status'] + (f' -> {dirs}' if dirs else '') + (f' ({how})' if dirs else '')
+               + (f'; files kept in {res["kept"]}' if res.get('kept') else ''))
+    ok = res['status'] == 'imported' or res['status'].startswith('duplicate')
+    if ok:
+        state = load_state(s)  # re-read: other jobs may have recorded meanwhile
+        state[key] = {'artist': item.band_name, 'title': item.item_title, 'url': item_url(item),
+                      'imported': time.strftime('%Y-%m-%d'), 'status': res['status'], 'dirs': dirs}
+        save_state(s, state)
+    return ok, summary, res
+
+
+def run(items, bc, s: pipeline.Settings, *, fmt: str, as_is: bool, force: bool) -> int:
+    """Foreground: import the items one after another, printing progress."""
+    jobs.use_console()
     failures = 0
     for n, item in enumerate(items, 1):
-        key = str(item.item_id)
-        prefix = f'[{n}/{len(items)}] {label(item)}'
-        if key in state and not force:
-            print(f'{prefix}: already imported {state[key]["imported"]}, skipped (--force to redo)')
-            continue
-        try:
-            res = import_item(bc, item, s, fmt=fmt, as_is=as_is)
-        except BandcampImportError as e:
-            failures += 1
-            print(f'{prefix}: FAILED - {e}')
-            continue
-        dirs = ', '.join(a['dir'] for a in res.get('albums', []))
-        how = res.get('fallback') or res.get('match', '')
-        print(f'{prefix}: {res["status"]}' + (f' -> {dirs}' if dirs else '') + (f' ({how})' if dirs else '')
-              + (f'; files kept in {res["kept"]}' if res.get('kept') else ''))
-        if res['status'] == 'imported' or res['status'].startswith('duplicate'):
-            state[key] = {'artist': item.band_name, 'title': item.item_title, 'url': item_url(item),
-                          'imported': time.strftime('%Y-%m-%d'), 'status': res['status'], 'dirs': dirs}
-            save_state(s, state)
-        else:
-            failures += 1
+        ok, summary, _ = import_and_record(bc, item, s, fmt=fmt, as_is=as_is, force=force)
+        jobs.console_done()
+        print(f'[{n}/{len(items)}] {label(item)}: {summary}')
+        failures += not ok
     return 1 if failures else 0
+
+
+def queue_items(items, *, fmt: str, as_is: bool, force: bool) -> int:
+    """Background (default): one job per release."""
+    ids = []
+    for item in items:
+        job_id, created = jobs.submit('bandcamp', label(item),
+                                      {'item_id': item.item_id, 'format': fmt, 'as_is': as_is, 'force': force})
+        ids.append(job_id)
+        print(f'queued job #{job_id}: {label(item)}' + ('' if created else ' (was already queued)'))
+    if ids:
+        first = ids[0] if len(ids) == 1 else f'{ids[0]}-{ids[-1]}'
+        print(f'\nrunning in the background; watch with: mi follow  (or mi jobs / mi job {ids[0]})'
+              + (f'  [jobs {first}]' if len(ids) > 1 else ''))
+    return 0
 
 
 # ---------- interaction ----------
@@ -267,10 +316,19 @@ def choose(items, prompt: str, *, assume_yes: bool, state: dict) -> list:
         print('  not understood, try again')
 
 
+def _go(selected, bc, s, a) -> int:
+    if a.fg:
+        print(f'importing {len(selected)} release(s) in the foreground ...')
+        return run(selected, bc, s, fmt=a.format, as_is=a.as_is, force=a.force)
+    return queue_items(selected, fmt=a.format, as_is=a.as_is, force=a.force)
+
+
 def main(a) -> int:
     s = pipeline.Settings()
+    jobs.use_console()
     try:
         bc = connect(s)
+        jobs.console_done()
         items = [i for i in bc.purchases if not i.is_preorder]
         state = load_state(s)
         if a.bc_cmd is None:  # bare `bandcamp`: browse everything, grouped by artist
@@ -278,8 +336,7 @@ def main(a) -> int:
             if not selected:
                 print('nothing selected')
                 return 0
-            print(f'importing {len(selected)} release(s) ...')
-            return run(selected, bc, s, fmt=a.format, as_is=a.as_is, force=a.force)
+            return _go(selected, bc, s, a)
         if a.bc_cmd == 'list':
             shown = find_albums(items, a.filter) if a.filter else items
             _print_items(sorted(shown, key=lambda i: (i.band_name.casefold(), i.item_title.casefold())), state)
@@ -308,7 +365,7 @@ def main(a) -> int:
         if not selected:
             print('nothing selected')
             return 0
-        return run(selected, bc, s, fmt=a.format, as_is=a.as_is, force=a.force)
+        return _go(selected, bc, s, a)
     except BandcampImportError as e:
         print(f'error: {e}', file=sys.stderr)
         return 2
@@ -330,6 +387,7 @@ def add_parser(sub) -> None:
         p.add_argument('--format', default='flac', choices=FORMATS, help='download format (default flac)')
         p.add_argument('--as-is', action='store_true', help='skip MusicBrainz, keep Bandcamp\'s tags')
         p.add_argument('--force', action='store_true', help='re-import releases imported before')
+        p.add_argument('--fg', action='store_true', help='run here and wait, instead of as background jobs')
 
 
 # ---------- browsing the whole collection ----------

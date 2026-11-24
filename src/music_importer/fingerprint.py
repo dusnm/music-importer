@@ -12,6 +12,8 @@ import time
 from collections import Counter
 from pathlib import Path
 
+from . import jobs
+
 import acoustid
 import requests
 from mutagen import File
@@ -62,7 +64,8 @@ def identify(tracks: list[Path]) -> dict | None:
     """Fingerprint tracks and return {'release': mb release json, 'map': {path: track}}."""
     per_file: dict[Path, set[str]] = {}
     release_votes: Counter[str] = Counter()
-    for t in tracks:
+    for n, t in enumerate(tracks, 1):
+        jobs.progress(f'fingerprinting {n}/{len(tracks)}')
         try:
             recs, rels = _recordings(t)
         except Exception as e:

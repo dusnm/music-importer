@@ -35,29 +35,38 @@ usage() {
     cat <<'EOF'
 Usage: mi COMMAND [ARGS...]
 
-Importing (run inside the container):
-  import DIR [--mbid ID | --as-is]   import a folder now (host or container path)
+Work that changes the library runs as a background job: the command queues it and returns.
+Add --fg to run it right here and wait instead.
+
+Importing (queued as background jobs):
+  import DIR [--mbid ID | --as-is]   import a folder (host or container path)
   art DIR                            redo cover art of an album folder
   lyrics [DIR] [--retry-all]         fetch lyrics for the library or one folder
-  index                              re-register the library in the beets DB
   bandcamp                           browse your Bandcamp collection and pick releases
-  bandcamp list [FILTER]             list what you own on Bandcamp
   bandcamp album URL|TEXT...         import releases you own
   bandcamp artist URL|NAME           import (a choice of) an artist's releases you own
+  bandcamp list [FILTER]             list what you own on Bandcamp (runs right away)
+  index                              re-register the library in the beets DB (runs right away)
+
+Jobs:
+  jobs [-n N]                        queued, running and the last N finished jobs
+  job ID [--log]                     one job: state, timings, outcome and log
+  follow [ID] [--log]                live progress of a job (default: every queued/running one)
+  cancel ID...                       cancel queued jobs, stop running ones
+  retry ID...                        queue a failed/interrupted job again
 
 On the host:
-  status                             container state, inbox and the last imports
+  status                             container state, inbox, active jobs and the last imports
   history [N]                        the last N imports (default 10)
   logs [-f] [N]                      container log (last N lines, default 100; -f follows)
-  restart                            restart the container
+  restart                            restart the container (a running job may finish first)
   deploy                             rebuild the image from the project and recreate it
   shell                              a shell inside the container
   help                               this text
 
 Host paths are translated, e.g. ~/music-inbox/_not-imported/Foo -> /inbox/_not-imported/Foo,
 /srv/media/music/... -> /music/..., slskd downloads -> /downloads/...
-Any other arguments are passed through unchanged; `mi COMMAND --help` shows
-the options of a container command.
+`mi COMMAND --help` shows the options of a command; `mi -v COMMAND` shows detailed logs.
 EOF
 }
 
@@ -152,6 +161,13 @@ status() {
         found=1
     done
     (( found )) || echo "    empty"
+    echo
+    echo "jobs:"
+    if running; then
+        docker-compose -f "$COMPOSE_FILE" exec -T "$SERVICE" music-importer jobs -n 3 | sed 's/^/    /'
+    else
+        echo "    (container not running)"
+    fi
     echo
     echo "last imports:"
     history 5 | sed 's/^/    /'

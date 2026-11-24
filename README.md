@@ -111,7 +111,9 @@ Titles follow MusicBrainz spelling, for example `Everybody’s Fool` and `My Imm
 `bin/mi` is a front end for the container, symlinked to `~/.local/bin/mi`, so it works from any folder:
 
 ```bash
-mi status                     # container state, inbox, last imports
+mi status                     # container state, inbox, active jobs, last imports
+mi jobs                       # queued, running and recent jobs
+mi follow                     # live progress of everything queued/running (Ctrl-C stops watching)
 mi history 20                 # the last 20 imports
 mi logs -f                    # follow the container log
 mi import ~/music-inbox/_not-imported/<folder> --mbid <id>   # force a release
@@ -128,6 +130,36 @@ mi help
 - **Terminal:** the interactive Bandcamp picker gets a terminal when you run the command in one. In scripts and pipes it runs without one.
 
 `--mbid` takes the release id from a `https://musicbrainz.org/release/<id>` URL. Use it when a folder was left behind because no match was confident enough.
+
+## Background jobs
+
+Everything that changes the library runs as a **job**: `import`, `art`, `lyrics`, and Bandcamp
+releases (one job per release). slskd webhooks and the inbox watcher create jobs too.
+
+- **Order:** one worker in the server runs jobs one after another, in the order they were queued. Nothing touches the beets database at the same time.
+- **Commands return immediately:** they print the job number. Add `--fg` to run the work in the terminal and wait for it instead, with a live progress line.
+- **What jobs report:**
+  - Each job reports progress while it runs, for example `downloading … 45% (120/260 MB, 2.1 MB/s)`, `matching with MusicBrainz (beets)`, `fingerprinting 3/9`, `cover art: …` or `lyrics 12/40`.
+  - It also keeps the log lines written while it ran.
+  - When it finishes, it gets a one-line outcome.
+- **Commands:**
+
+  ```bash
+  mi jobs [-n N]        # queued and running jobs plus the last N finished (default 10)
+  mi job 42 [--log]     # one job: state, timings, parameters, outcome and its log
+  mi follow [42]        # live progress of one job, or of every queued/running job in turn
+  mi follow --log       # ...and print its log lines as they come
+  mi cancel 42 43       # a queued job is dropped; a running one stops at the next safe point
+  mi retry 42           # queue a failed, cancelled or interrupted job again
+  ```
+
+- **Marks:** `…` queued, `▶` running, `✓` done, `✗` failed, `-` cancelled, `!` interrupted.
+- **Duplicates:** queueing a job identical to one that is already queued or running returns the existing job instead.
+- **Restarts:**
+  - Jobs are stored in `data/jobs.db`, so queued jobs survive a restart or redeploy.
+  - On `docker stop`, the server takes no new jobs and lets the running one finish, for up to `stop_grace_period`, which is 2 minutes.
+  - A job that was still cut off is marked `interrupted`; `mi retry` queues it again.
+- **History:** the last 1000 finished jobs are kept.
 
 ## Bandcamp
 
@@ -168,7 +200,8 @@ How it behaves:
   - `--as-is` skips MusicBrainz from the start.
 - **Re-runs:** imported purchases are recorded in `data/bandcamp.json`, so running `artist` again only fetches new releases. `--force` re-imports. When an album is re-imported, the newer copy wins as usual.
 - **Format:** `--format` picks a different download format, such as `mp3-320` or `alac`. The default is `flac`.
-- **Failures:** a release that fails to import stays in `data/bandcamp/` and is reported. Retry it with `import /data/bandcamp/<folder> [--mbid ...|--as-is]`.
+- **Background jobs:** after you pick, every release is queued as its own [background job](#background-jobs) and the command returns right away. Watch with `mi follow`. `--fg` imports in the terminal instead.
+- **Failures:** a release that fails to import stays in `data/bandcamp/`, and its job is marked failed. Retry it with `mi retry <job>`, or with `mi import /data/bandcamp/<folder> [--mbid ...|--as-is]`.
 
 **Login:**
 1. Log in on bandcamp.com in a browser.

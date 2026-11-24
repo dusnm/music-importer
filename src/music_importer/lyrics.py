@@ -21,7 +21,7 @@ from pathlib import Path
 import requests
 from mutagen import File
 
-from . import art
+from . import art, jobs
 
 log = logging.getLogger(__name__)
 
@@ -175,6 +175,7 @@ def fetch(tracks: list[Path], data_dir: Path, *, retry_all: bool = False,
     cutoff = time.time() - RETRY_DAYS * 86400
     counts: dict[str, int] = {}
     for n, t in enumerate(tracks, 1):
+        jobs.progress(f'lyrics {n}/{len(tracks)}')
         key = str(t)
         if key in known and known[key] > cutoff:
             status = 'skipped (checked recently)'

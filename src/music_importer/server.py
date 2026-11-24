@@ -1,28 +1,22 @@
-"""HTTP endpoint for slskd webhooks; imports completed download folders one at a time."""
+"""HTTP endpoint for slskd webhooks plus the background job worker and inbox watcher."""
 from __future__ import annotations
 
 import json
 import logging
 import os
-import queue
+import signal
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path, PurePosixPath
 
-from . import inbox
-from .pipeline import Settings, import_folder
+from . import inbox, jobs, tasks  # noqa: F401  (tasks registers the job runners)
+from .pipeline import Settings
 
 log = logging.getLogger(__name__)
 
 # slskd reports paths as seen inside its own container.
 SLSKD_DOWNLOADS = PurePosixPath(os.environ.get('SLSKD_DOWNLOADS_DIR', '/app/downloads'))
-SETTLE_SECONDS = float(os.environ.get('SETTLE_SECONDS', '10'))
-
 INBOX_DIR = os.environ.get('INBOX_DIR', '')
-
-_jobs: queue.Queue[tuple[Path, str]] = queue.Queue()
-_pending: set[Path] = set()  # queued or being imported
-_lock = threading.Lock()
 
 
 def _find_dir(payload) -> str | None:
@@ -59,36 +53,9 @@ def map_path(slskd_path: str, s: Settings) -> Path | None:
 
 
 def enqueue(folder: Path, source: str = 'slskd') -> bool:
-    with _lock:
-        if folder in _pending:
-            return False
-        _pending.add(folder)
-    _jobs.put((folder, source))
-    return True
-
-
-def worker(s: Settings, stop: threading.Event) -> None:
-    while not stop.is_set():
-        try:
-            folder, source = _jobs.get(timeout=1)
-        except queue.Empty:
-            continue
-        if source == 'slskd':
-            stop.wait(SETTLE_SECONDS)  # let slskd finish renaming/closing the last file
-        result: dict = {'status': 'failed with an error, see the container log'}
-        try:
-            result = import_folder(folder, s)
-        except Exception:
-            log.exception('import of %s failed', folder)
-        finally:
-            try:
-                if source == 'inbox' and folder.exists():  # anything left is not imported
-                    inbox.park(folder, Path(INBOX_DIR), result)
-            except Exception:
-                log.exception('could not move %s out of the inbox', folder)
-            with _lock:
-                _pending.discard(folder)
-            _jobs.task_done()
+    """Queue an import job (slskd webhook, inbox watcher). False if it is already queued."""
+    _, created = jobs.submit('import', folder.name, {'folder': str(folder), 'source': source}, source)
+    return created
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -107,7 +74,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         if self.path == '/health':
-            self._reply(200, {'ok': True, 'queued': _jobs.qsize()})
+            self._reply(200, {'ok': True, 'active': len(jobs.recent(active_only=True))})
         else:
             self._reply(404, {'error': 'not found'})
 
@@ -138,12 +105,23 @@ class Handler(BaseHTTPRequestHandler):
 def serve(host: str = '0.0.0.0', port: int = 8080) -> None:
     s = Settings()
     stop = threading.Event()
-    threading.Thread(target=worker, args=(s, stop), daemon=True, name='importer').start()
+    jobs.recover()
+    worker = threading.Thread(target=jobs.work, args=(stop,), daemon=True, name='importer')
+    worker.start()
     if INBOX_DIR:
         threading.Thread(target=inbox.watch, args=(Path(INBOX_DIR), enqueue, stop),
                          daemon=True, name='inbox').start()
     Handler.settings = s
     httpd = ThreadingHTTPServer((host, port), Handler)
+
+    def shutdown(signum, _frame):
+        # docker stop: take no new jobs, let the running one finish within the grace period
+        log.info('received signal %d: finishing the current job, then stopping', signum)
+        stop.set()
+        threading.Thread(target=httpd.shutdown, daemon=True).start()
+
+    signal.signal(signal.SIGTERM, shutdown)
+    signal.signal(signal.SIGINT, shutdown)
     log.info('listening on %s:%d; downloads %s -> %s; library %s; fanart.tv %s',
              host, port, SLSKD_DOWNLOADS, s.downloads_dir, s.music_dir,
              'enabled' if s.fanarttv_key else 'disabled (no FANARTTV_API_KEY)')
@@ -151,3 +129,5 @@ def serve(host: str = '0.0.0.0', port: int = 8080) -> None:
         httpd.serve_forever()
     finally:
         stop.set()
+        worker.join()  # docker kills us at the end of stop_grace_period if it takes longer
+        log.info('stopped')
