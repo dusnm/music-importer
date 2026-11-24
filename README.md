@@ -212,8 +212,8 @@ releases (one job per release). slskd webhooks and the inbox watcher create jobs
 
 ```bash
 mi slskd search iced earth plagues of babylon          # list album folders, pick to download
-mi slskd search iced earth plagues of babylon --flac   # only lossless folders
-mi slskd search ... --pick 1                           # queue number 1 without asking (scripts)
+mi slskd search --lossless iced earth plagues of babylon   # only lossless folders (FLAC, WAV, AIFF, ALAC, APE, WavPack)
+mi slskd search --pick 1 ...                           # queue number 1 without asking (scripts)
 mi slskd downloads                                     # what slskd is downloading
 ```
 

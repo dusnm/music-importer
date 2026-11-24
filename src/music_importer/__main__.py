@@ -9,7 +9,7 @@ it here instead and waits. On the host, `mi` wraps this command.
   music-importer lyrics [DIR] [--retry-all] [--fg]  fetch LRCLIB lyrics for the library (or DIR)
   music-importer retag DIR [--mbid ID] [--fg] match a library album against MusicBrainz again
   music-importer find WORDS... [-n N]        search the library's album folders
-  music-importer slskd search WORDS... [--flac] [--pick N]   search Soulseek, queue album downloads
+  music-importer slskd search [--lossless] [--pick N] WORDS...   search Soulseek, queue album downloads
   music-importer slskd downloads             what slskd is downloading
   (art, lyrics and retag also take search words instead of DIR, e.g. retag plagues babylon)
   music-importer bandcamp [...]              your Bandcamp collection (see bandcamp --help)

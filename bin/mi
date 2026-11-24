@@ -62,7 +62,7 @@ the album is picked when one clearly matches best, otherwise you choose from a l
   bandcamp album URL|TEXT...         import releases you own
   bandcamp artist URL|NAME           import (a choice of) an artist's releases you own
   bandcamp list [FILTER]             list what you own on Bandcamp (runs right away)
-  slskd search WORDS... [--flac]     search Soulseek; folders by free slot and speed; pick to queue
+  slskd search [--lossless] WORDS... search Soulseek; folders by free slot and speed; pick to queue
   slskd downloads                    what slskd is downloading (finished folders get imported)
   index                              re-register the library in the beets DB (runs right away)
 

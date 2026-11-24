@@ -1,6 +1,6 @@
 """Search Soulseek through slskd and queue album downloads (slskd's REST API).
 
-  music-importer slskd search WORDS... [--flac] [-n N] [--pick 1,3]
+  music-importer slskd search [--lossless] [-n N] [--pick 1,3] WORDS...
   music-importer slskd downloads
 
 Results are grouped into folders (one remote folder = one album, usually), sorted by
@@ -13,6 +13,7 @@ Needs SLSKD_URL and SLSKD_API_KEY (a readwrite key from slskd.yml web.authentica
 """
 from __future__ import annotations
 
+import argparse
 import os
 import re
 import sys
@@ -235,9 +236,9 @@ def main(a) -> int:
         responses = search(text, progress=progress)
         if tty:
             sys.stderr.write('\r\033[K')
-        rows = folders(responses, lossless_only=a.flac)
+        rows = folders(responses, lossless_only=a.lossless)
         if not rows:
-            print(f'no {"lossless " if a.flac else ""}album folders found for "{text}"')
+            print(f'no {"lossless " if a.lossless else ""}album folders found for "{text}"')
             return 1
         shown = rows[:a.n]
         print(f'{len(rows)} folders from {len(responses)} users, best {len(shown)} shown '
@@ -268,8 +269,10 @@ def add_parser(sub) -> None:
     sk = sub.add_parser('slskd', help='search Soulseek and queue album downloads (via slskd)')
     ssub = sk.add_subparsers(dest='slskd_cmd', required=True)
     se = ssub.add_parser('search', help='search, list album folders by free slot and speed, queue picks')
-    se.add_argument('words', nargs='+')
-    se.add_argument('--flac', action='store_true', help='only lossless folders')
+    se.add_argument('--lossless', action='store_true',
+                    help='only folders whose audio is all lossless (FLAC, WAV, AIFF, ALAC, APE, WavPack)')
+    se.add_argument('--flac', dest='lossless', action='store_true', help=argparse.SUPPRESS)   # old name
     se.add_argument('-n', type=int, default=25, help='list at most this many folders (default 25)')
     se.add_argument('--pick', help='queue these list numbers without asking, e.g. 1 or 1,3')
+    se.add_argument('words', nargs='+', help='what to search for, e.g. artist and album')
     ssub.add_parser('downloads', help='what slskd is downloading')
