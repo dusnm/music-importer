@@ -28,10 +28,12 @@ ui:
 
 per_disc_numbering: yes
 
-# Path-character replacements: beets' defaults, plus a leading "..." (e.g. "...And Justice
-# for All") becoming "…" rather than "_.." - a leading dot would hide the folder. Order matters.
+# Path-character replacements: beets' defaults, plus a leading or trailing "..." becoming "…"
+# rather than "_.." / ".._" (e.g. "...And Justice for All", "For Funerals To Come...") - a
+# leading dot would hide the folder. Order matters.
 replace:
   '^\.\.\.': '…'
+  '\.\.\.$': '…'
   '[\\/]': _
   '^\.': _
   '[\x00-\x1f]': _
