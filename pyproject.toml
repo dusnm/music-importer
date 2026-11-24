@@ -1,12 +1,13 @@
 [build-system]
-requires = ["setuptools>=75"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "music-importer"
 version = "0.7.0"
-description = "slskd webhook -> beets import, cover art normalisation"
+description = "Imports music from slskd, a drop folder and Bandcamp into a beets-tagged library, with cover art and lyrics"
 requires-python = ">=3.12,<3.15"
+license = "MIT"
 dependencies = [
     "beets[fetchart,chroma,lastgenre]==2.14.1",
     "mutagen==1.48.1",

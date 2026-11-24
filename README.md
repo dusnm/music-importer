@@ -286,3 +286,7 @@ The slskd side is set in `slskd.yml` under `integrations.webhooks.music_importer
 - **beets 2.14.1** supports Python below 3.15, so the image uses `python:3.14.10-slim-trixie` instead of 3.15.
 - **Bumping beets:** update `pyproject.toml`, regenerate `requirements.lock` in the new base image, then rebuild.
 - **slskd** is pinned to `0.26.2`. Check the webhook payload (`localDirectoryName`) when upgrading it.
+
+## License
+
+MIT. See [LICENSE](LICENSE).
