@@ -123,6 +123,40 @@ docker-compose exec music-importer music-importer index  # re-register the libra
 
 `--mbid` takes the release id from a `https://musicbrainz.org/release/<id>` URL. Use it when a folder was left behind because no match was confident enough.
 
+## Bandcamp
+
+Imports releases from **your own Bandcamp collection**: purchases and claimed free or
+name-your-price downloads, as FLAC. Pre-orders and physical-only items are skipped.
+
+```bash
+docker-compose exec music-importer music-importer bandcamp list                 # everything you own
+docker-compose exec music-importer music-importer bandcamp list pelican         # filtered
+docker-compose exec music-importer music-importer bandcamp album https://pelican.bandcamp.com/album/australasia
+docker-compose exec music-importer music-importer bandcamp album "pelican - city of"   # part of "Artist - Title"
+docker-compose exec music-importer music-importer bandcamp artist https://pelican.bandcamp.com
+docker-compose exec music-importer music-importer bandcamp artist "Pelican"             # by name
+```
+
+How it behaves:
+- **Choosing releases:** `artist` lists the releases you own from that artist and asks which to import: Enter for all, `1,3-5` for some, `q` to cancel. `album` asks the same way when the text matches several releases. Pass `--yes` to take every match without asking.
+- **Matching:**
+  - Each release is downloaded and unpacked into `data/bandcamp/<Artist - Title>`, then goes through the [normal import](#drop-folder).
+  - If MusicBrainz has no confident match, which is common for Bandcamp releases, it is imported with Bandcamp's own tags, as with `[as-is]`.
+  - `--as-is` skips MusicBrainz from the start.
+- **Re-runs:** imported purchases are recorded in `data/bandcamp.json`, so running `artist` again only fetches new releases. `--force` re-imports. When an album is re-imported, the newer copy wins as usual.
+- **Format:** `--format` picks a different download format, such as `mp3-320` or `alac`. The default is `flac`.
+- **Failures:** a release that fails to import stays in `data/bandcamp/` and is reported. Retry it with `import /data/bandcamp/<folder> [--mbid ...|--as-is]`.
+
+**Login:**
+1. Log in on bandcamp.com in a browser.
+2. Open the developer tools: *Storage* (Firefox) or *Application* (Chrome), then *Cookies*, then `https://bandcamp.com`.
+3. Copy the value of the `identity` cookie into `.env` as `BANDCAMP_COOKIES=<value>`.
+4. Run `docker-compose up -d`.
+
+The cookie lasts until you log out of that browser session. When it expires, commands stop with a "did not accept the login cookie" error. A Netscape `cookies.txt` export saved as `data/bandcamp-cookies.txt` also works.
+
+Talking to Bandcamp (its bot challenge, the collection API and download links) is handled by [bandcampsync](https://github.com/meeb/bandcampsync), which is used as a library.
+
 ## Files
 
 | Path | Purpose |
