@@ -9,7 +9,7 @@ import os
 import time
 from pathlib import Path
 
-from . import art, bandcamp, coverfetch, inbox, jobs, lyrics, pipeline
+from . import art, bandcamp, coverfetch, inbox, jobs, lyrics, pipeline, retag
 
 SETTLE_SECONDS = float(os.environ.get('SETTLE_SECONDS', '10'))
 INBOX_DIR = os.environ.get('INBOX_DIR', '')
@@ -57,6 +57,18 @@ def run_art(p: dict, row=None) -> dict:
     rep = art.fix_album_art(folder, tracks)
     rep = coverfetch.fill(folder, tracks, rep, pipeline.Settings().fanarttv_key)
     return {**rep, '_summary': '; '.join(rep.get('actions', [])) or 'nothing to do'}
+
+
+@jobs.runner('retag')
+def run_retag(p: dict, row=None) -> dict:
+    try:
+        result = retag.retag(Path(p['folder']), mbid=p.get('mbid'))
+    except retag.RetagError as e:
+        return {'_summary': str(e), '_state': 'failed'}
+    albums = result.get('albums') or []
+    detail = '; '.join(albums[0]['actions']) if albums else ''
+    state = 'failed' if result['status'].startswith('unchanged: no confident') else 'done'
+    return {**result, '_summary': result['status'] + (f': {detail}' if detail else ''), '_state': state}
 
 
 @jobs.runner('lyrics')

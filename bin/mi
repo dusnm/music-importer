@@ -53,6 +53,7 @@ Importing (queued as background jobs):
   import DIR [--mbid ID | --as-is]   import a folder (host or container path)
   art DIR                            cover art of an album folder: normalise, or download if none
   lyrics [DIR] [--retry-all]         fetch lyrics for the library or one folder
+  retag DIR [--mbid ID]              match a library album against MusicBrainz again
   bandcamp                           browse your Bandcamp collection and pick releases
   bandcamp album URL|TEXT...         import releases you own
   bandcamp artist URL|NAME           import (a choice of) an artist's releases you own

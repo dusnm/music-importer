@@ -7,6 +7,7 @@ it here instead and waits. On the host, `mi` wraps this command.
   music-importer import DIR [--mbid ID|--as-is] [--fg]   import a folder
   music-importer art DIR [--fg]              cover art of an album folder: normalise it, or download one if none
   music-importer lyrics [DIR] [--retry-all] [--fg]  fetch LRCLIB lyrics for the library (or DIR)
+  music-importer retag DIR [--mbid ID] [--fg] match a library album against MusicBrainz again
   music-importer bandcamp [...]              your Bandcamp collection (see bandcamp --help)
   music-importer index                       register the existing library in the beets DB
   music-importer jobs [-n N]                 queued, running and recent jobs
@@ -189,6 +190,9 @@ def main(argv: list[str] | None = None) -> int:
     ly = sub.add_parser('lyrics', parents=[fg], help='fetch lyrics for the library or one folder')
     ly.add_argument('folder', type=Path, nargs='?')
     ly.add_argument('--retry-all', action='store_true', help='also retry tracks checked recently')
+    rt_ = sub.add_parser('retag', parents=[fg], help='match a library album against MusicBrainz again')
+    rt_.add_argument('folder', type=Path)
+    rt_.add_argument('--mbid', help='MusicBrainz release id (or URL) to use instead of searching')
     bandcamp.add_parser(sub)
     js = sub.add_parser('jobs', help='queued, running and recent jobs')
     js.add_argument('-n', type=int, default=10, help='how many recent jobs (default 10)')
@@ -230,6 +234,11 @@ def main(argv: list[str] | None = None) -> int:
         folder = str(a.folder.resolve()) if a.folder else None
         return _run(a, 'lyrics', a.folder.name if a.folder else 'whole library',
                     {'folder': folder, 'retry_all': a.retry_all})
+    elif a.cmd == 'retag':
+        params = {'folder': str(a.folder.resolve())}
+        if a.mbid:
+            params['mbid'] = a.mbid
+        return _run(a, 'retag', a.folder.name, params)
     elif a.cmd == 'bandcamp':
         return bandcamp.main(a)
     elif a.cmd == 'jobs':
