@@ -67,7 +67,7 @@ def retag(folder: Path, s: pipeline.Settings | None = None, *, mbid: str | None 
     args = ['import', '-L', '-q']
     if mbid:
         args += ['--search-id', mbid]
-    p, outcome = pipeline._import(s, args + [f'album_id:{album.id}'], old_root)
+    p, outcome = pipeline._import(s, args + [f'album_id:{album.id}'], old_root, trusted_release=bool(mbid))
     result['beets_exit'] = p.returncode
     if p.returncode != 0:
         raise RetagError(f'beets exited with {p.returncode} (see the job log)')

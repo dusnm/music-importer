@@ -141,7 +141,7 @@ mi help
   - The lyrics database is updated, and a cover is downloaded if the album has none.
   - The job reports what changed. An album that already matches is left as it is.
 
-`--mbid` takes the release id from a `https://musicbrainz.org/release/<id>` URL. Use it when a folder was left behind because no match was confident enough.
+`--mbid` takes the release id from a `https://musicbrainz.org/release/<id>` URL. With `--mbid` (in `import` and `retag`) a weaker match is accepted, up to 35 % different instead of 4 %, so title spelling, "(Deluxe Version)" or a different disc layout don't block the release you chose. Missing or extra tracks still do. Use it when a folder was left behind because no match was confident enough.
 
 ## Using mi from another machine
 

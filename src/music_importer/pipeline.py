@@ -42,7 +42,12 @@ class Settings:
         return self.data_dir / 'library.db'
 
 
-def beets_config(s: Settings, *, index_only: bool = False) -> Path:
+# With a release id the user chose (--mbid), small differences (title spelling, disc layout,
+# "(Deluxe Version)") must not block the match; missing or extra tracks still do (max_rec).
+TRUSTED_RELEASE_THRESH = 0.35
+
+
+def beets_config(s: Settings, *, index_only: bool = False, trusted_release: bool = False) -> Path:
     """Write the runtime beets config (outside the data volume: it holds the API key)."""
     cfg = yaml.safe_load(TEMPLATE.read_text())
     cfg['directory'] = str(s.music_dir)
@@ -53,6 +58,8 @@ def beets_config(s: Settings, *, index_only: bool = False) -> Path:
                             'replaced_log': str(s.data_dir / 'replaced.jsonl')}
     if not s.fanarttv_key:
         cfg['fetchart']['sources'] = [x for x in cfg['fetchart']['sources'] if x != 'fanarttv']
+    if trusted_release:
+        cfg.setdefault('match', {})['strong_rec_thresh'] = TRUSTED_RELEASE_THRESH
     if index_only:
         # Register files where they are: no matching, moving, writing or plugins.
         cfg['plugins'] = []
@@ -65,8 +72,9 @@ def beets_config(s: Settings, *, index_only: bool = False) -> Path:
     return path
 
 
-def run_beet(s: Settings, args: list[str], *, index_only: bool = False) -> subprocess.CompletedProcess:
-    cfg = beets_config(s, index_only=index_only)
+def run_beet(s: Settings, args: list[str], *, index_only: bool = False,
+             trusted_release: bool = False) -> subprocess.CompletedProcess:
+    cfg = beets_config(s, index_only=index_only, trusted_release=trusted_release)
     env = {**os.environ, 'BEETSDIR': str(s.data_dir / 'beets')}
     verbose = ['-v'] if os.environ.get('BEETS_VERBOSE') == '1' else []
     cmd = ['beet', *verbose, '-c', str(cfg), *args]
@@ -126,12 +134,13 @@ def clean_download(folder: Path) -> str:
     return 'removed'
 
 
-def _import(s: Settings, args: list[str], folder: Path) -> tuple[subprocess.CompletedProcess, str]:
+def _import(s: Settings, args: list[str], folder: Path, *,
+            trusted_release: bool = False) -> tuple[subprocess.CompletedProcess, str]:
     """Run beet import; return the process and beets' logged outcome for the folder
     ('skip', 'duplicate-skip', ... or '' when nothing was logged, i.e. imported)."""
     logfile = s.data_dir / 'beets-import.log'
     start = logfile.stat().st_size if logfile.exists() else 0
-    p = run_beet(s, [*args, str(folder)])
+    p = run_beet(s, [*args, str(folder)], trusted_release=trusted_release)
     outcome = ''
     if logfile.exists():
         with open(logfile, 'rb') as fh:
@@ -167,7 +176,7 @@ def import_folder(folder: Path, s: Settings | None = None, *, search_id: str | N
     elif search_id:
         args += ['--search-id', search_id]
     jobs.progress('importing with own tags (beets)' if as_is else 'matching with MusicBrainz (beets)', force=True)
-    p, outcome = _import(s, args, folder)
+    p, outcome = _import(s, args, folder, trusted_release=bool(search_id) and not as_is)
     result['match'] = 'as-is (own tags)' if as_is else 'tags'
     albums = albums_added_since(s, t0)
     if (not albums and outcome == 'skip' and p.returncode == 0 and not search_id and not as_is
@@ -178,7 +187,7 @@ def import_folder(folder: Path, s: Settings | None = None, *, search_id: str | N
             fingerprint.write_provisional_tags(ident)
             result['match'] = f"fingerprint -> {ident['release']['id']}"
             jobs.progress('matching the fingerprinted release (beets)', force=True)
-            p, outcome = _import(s, args, folder)
+            p, outcome = _import(s, args, folder, trusted_release=bool(search_id) and not as_is)
             albums = albums_added_since(s, t0)
     result['beets_exit'] = p.returncode
     if p.returncode != 0:  # crashed part-way: don't touch or report what it may have added
