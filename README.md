@@ -120,6 +120,8 @@ mi import ~/music-inbox/_not-imported/<folder> --mbid <id>   # force a release
 mi import "/downloads/<folder>"                              # retry an slskd folder
 mi import "/downloads/<folder>" --as-is      # keep own tags, no MusicBrainz
 mi art "/path/to/music/<Artist>/<Album (Year)>"   # cover art only: normalise, or download if missing
+mi retag plagues babylon            # match a library album against MusicBrainz again (--mbid ID to force a release)
+mi find katatonia dead             # search the library's album folders
 mi index                      # re-register the library (read-only)
 mi restart | deploy | shell   # restart, rebuild from this project, open a shell
 mi help
@@ -128,6 +130,16 @@ mi help
 - **Container commands:** anything that isn't a host command (`status`, `history`, `logs`, `restart`, `deploy`, `shell`) runs the CLI inside the container. `mi <command> --help` shows that command's options.
 - **Path translation:** host paths are translated to container paths, so a relative path works too. The inbox and `~/music-inbox` map to `/inbox`, the library to `/music`, slskd downloads to `/downloads`, and `data/` to `/data`. Container paths are passed through unchanged.
 - **Terminal:** the interactive Bandcamp picker gets a terminal when you run the command in one. In scripts and pipes it runs without one.
+
+- **Searches instead of paths:** `art`, `lyrics` and `retag` take search words instead of a folder, for example `mi retag plagues babylon`.
+  - Each word must match the artist, the album or the year, as a whole word, its start, or with a small typo. Case, accents and punctuation are ignored, so `trentemoller` finds Trentemøller.
+  - When one album clearly matches best it's used, and the command says which.
+  - When several are close, you pick from a numbered list. In a script without a terminal, the command stops and lists them instead.
+  - `mi find WORDS` shows what a search matches.
+- **`retag`:** re-imports a library album through beets, applying a MusicBrainz match only when it's confident, unless you pass `--mbid`.
+  - When names change, the files are renamed and moved, and lyrics files, booklets and notes follow.
+  - The lyrics database is updated, and a cover is downloaded if the album has none.
+  - The job reports what changed. An album that already matches is left as it is.
 
 `--mbid` takes the release id from a `https://musicbrainz.org/release/<id>` URL. Use it when a folder was left behind because no match was confident enough.
 

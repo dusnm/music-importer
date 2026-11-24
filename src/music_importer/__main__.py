@@ -8,6 +8,8 @@ it here instead and waits. On the host, `mi` wraps this command.
   music-importer art DIR [--fg]              cover art of an album folder: normalise it, or download one if none
   music-importer lyrics [DIR] [--retry-all] [--fg]  fetch LRCLIB lyrics for the library (or DIR)
   music-importer retag DIR [--mbid ID] [--fg] match a library album against MusicBrainz again
+  music-importer find WORDS... [-n N]        search the library's album folders
+  (art, lyrics and retag also take search words instead of DIR, e.g. retag plagues babylon)
   music-importer bandcamp [...]              your Bandcamp collection (see bandcamp --help)
   music-importer index                       register the existing library in the beets DB
   music-importer jobs [-n N]                 queued, running and recent jobs
@@ -27,7 +29,7 @@ import sys
 import time
 from pathlib import Path
 
-from . import bandcamp, jobs, pipeline, server, tasks
+from . import bandcamp, jobs, libsearch, pipeline, server, tasks
 
 
 def _queue(kind: str, title: str, params: dict) -> int:
@@ -186,14 +188,17 @@ def main(argv: list[str] | None = None) -> int:
                     help='keep the files\' own tags (no MusicBrainz); also implied by "[as-is]" in DIR')
     sub.add_parser('index', help='register the existing library in the beets DB')
     ar = sub.add_parser('art', parents=[fg], help='normalise the cover art of an album folder')
-    ar.add_argument('folder', type=Path)
+    ar.add_argument('folder', nargs='+', help='album folder, or words to search the library for')
     ly = sub.add_parser('lyrics', parents=[fg], help='fetch lyrics for the library or one folder')
-    ly.add_argument('folder', type=Path, nargs='?')
+    ly.add_argument('folder', nargs='*', help='album folder or a search (default: the whole library)')
     ly.add_argument('--retry-all', action='store_true', help='also retry tracks checked recently')
     rt_ = sub.add_parser('retag', parents=[fg], help='match a library album against MusicBrainz again')
-    rt_.add_argument('folder', type=Path)
+    rt_.add_argument('folder', nargs='+', help='album folder, or words to search the library for')
     rt_.add_argument('--mbid', help='MusicBrainz release id (or URL) to use instead of searching')
     bandcamp.add_parser(sub)
+    fd = sub.add_parser('find', help='search the library\'s album folders')
+    fd.add_argument('words', nargs='+')
+    fd.add_argument('-n', type=int, default=15, help='at most this many results (default 15)')
     js = sub.add_parser('jobs', help='queued, running and recent jobs')
     js.add_argument('-n', type=int, default=10, help='how many recent jobs (default 10)')
     jsub = js.add_subparsers(dest='jobs_cmd', required=False, description='without one: list the jobs')
@@ -228,17 +233,32 @@ def main(argv: list[str] | None = None) -> int:
         return _run(a, 'import', a.folder.name, params)
     elif a.cmd == 'index':
         print(json.dumps(pipeline.index_library()))
-    elif a.cmd == 'art':
-        return _run(a, 'art', a.folder.name, {'folder': str(a.folder.resolve())})
-    elif a.cmd == 'lyrics':
-        folder = str(a.folder.resolve()) if a.folder else None
-        return _run(a, 'lyrics', a.folder.name if a.folder else 'whole library',
-                    {'folder': folder, 'retry_all': a.retry_all})
-    elif a.cmd == 'retag':
-        params = {'folder': str(a.folder.resolve())}
+    elif a.cmd in ('art', 'lyrics', 'retag'):
+        folder = None
+        if a.folder:
+            try:
+                folder = libsearch.resolve(' '.join(a.folder), pipeline.Settings().music_dir)
+            except libsearch.SearchError as e:
+                print(f'error: {e}', file=sys.stderr)
+                return 2
+        if a.cmd == 'art':
+            return _run(a, 'art', folder.name, {'folder': str(folder)})
+        if a.cmd == 'lyrics':
+            return _run(a, 'lyrics', folder.name if folder else 'whole library',
+                        {'folder': str(folder) if folder else None, 'retry_all': a.retry_all})
+        params = {'folder': str(folder)}
         if a.mbid:
             params['mbid'] = a.mbid
-        return _run(a, 'retag', a.folder.name, params)
+        return _run(a, 'retag', folder.name, params)
+    elif a.cmd == 'find':
+        music = pipeline.Settings().music_dir
+        hits = libsearch.search(' '.join(a.words), music, limit=a.n)
+        if not hits:
+            print('no album matches')
+            return 1
+        for _, path in hits:
+            print(path.relative_to(music))
+        return 0
     elif a.cmd == 'bandcamp':
         return bandcamp.main(a)
     elif a.cmd == 'jobs':

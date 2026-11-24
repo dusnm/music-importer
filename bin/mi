@@ -54,6 +54,10 @@ Importing (queued as background jobs):
   art DIR                            cover art of an album folder: normalise, or download if none
   lyrics [DIR] [--retry-all]         fetch lyrics for the library or one folder
   retag DIR [--mbid ID]              match a library album against MusicBrainz again
+  find WORDS...                      search the library's album folders (artist, album, year)
+
+DIR for art, lyrics and retag can also be search words, e.g. `mi retag plagues babylon`:
+the album is picked when one clearly matches best, otherwise you choose from a list.
   bandcamp                           browse your Bandcamp collection and pick releases
   bandcamp album URL|TEXT...         import releases you own
   bandcamp artist URL|NAME           import (a choice of) an artist's releases you own
