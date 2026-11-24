@@ -129,6 +129,7 @@ Imports releases from **your own Bandcamp collection**: purchases and claimed fr
 name-your-price downloads, as FLAC. Pre-orders and physical-only items are skipped.
 
 ```bash
+docker-compose exec music-importer music-importer bandcamp                      # browse and pick (full screen)
 docker-compose exec music-importer music-importer bandcamp list                 # everything you own
 docker-compose exec music-importer music-importer bandcamp list pelican         # filtered
 docker-compose exec music-importer music-importer bandcamp album https://pelican.bandcamp.com/album/australasia
@@ -136,6 +137,22 @@ docker-compose exec music-importer music-importer bandcamp album "pelican - city
 docker-compose exec music-importer music-importer bandcamp artist https://pelican.bandcamp.com
 docker-compose exec music-importer music-importer bandcamp artist "Pelican"             # by name
 ```
+
+**Browsing:** `bandcamp` on its own opens a full-screen checklist of your whole collection.
+- **Layout:**
+  - Releases are grouped by artist. Artists are sorted by name, ignoring a leading "The".
+  - Within an artist, releases are sorted by release date.
+  - Releases imported from Bandcamp before are marked `✓ imported from Bandcamp` (green). Albums that are already in the library from another source are marked `● already in library` (yellow), matching on artist and album name.
+- **Keys:**
+  - ↑/↓, PgUp/PgDn, Home/End: move.
+  - Space: select a release; on an artist heading, select all of that artist's releases.
+  - `a`: toggle the whole current artist.
+  - `u`: select everything not marked.
+  - `n`: clear the selection.
+  - Enter: import the selection.
+  - `q`: quit without importing.
+- **Release dates:** these come from each release's Bandcamp page. They are cached in `data/bandcamp-releases.json`, so only the first run, about 2 minutes for 80 releases, and newly bought releases need a lookup.
+- **Numbered list instead:** `bandcamp --text` prints the same list with numbers and asks e.g. `1,3-5`. This is also the automatic fallback when there's no full terminal.
 
 How it behaves:
 - **Choosing releases:** `artist` lists the releases you own from that artist and asks which to import: Enter for all, `1,3-5` for some, `q` to cancel. `album` asks the same way when the text matches several releases. Pass `--yes` to take every match without asking.

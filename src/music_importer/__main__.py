@@ -5,6 +5,7 @@
   music-importer index                       register the existing library in the beets DB
   music-importer art DIR                     normalise cover art of an album folder in place
   music-importer lyrics [DIR] [--retry-all]  fetch LRCLIB lyrics for the library (or DIR)
+  music-importer bandcamp                    browse your Bandcamp collection and pick releases
   music-importer bandcamp list [FILTER]      releases in your Bandcamp collection
   music-importer bandcamp album URL|TEXT...  import releases you own
   music-importer bandcamp artist URL|NAME    import (a choice of) everything you own from an artist
