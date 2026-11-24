@@ -67,9 +67,9 @@ Tracks are skipped when they:
 Each track's result is stored in `data/lyrics.db` as one of: `synced`, `plain`, `embedded` (lyrics already stored in the file), `instrumental`, `not-found` or `no-tags`. A track that was not found, was instrumental, or had no tags is retried only after `LYRICS_RETRY_DAYS` (30). Requests are spaced 0.5 s apart.
 
 ```bash
-music-importer lyrics                       # whole library (resumable)
-music-importer lyrics "/music/<Artist>/<Album (Year)>"
-music-importer lyrics --retry-all           # ignore the 30-day memory
+mi lyrics                       # whole library (resumable)
+mi lyrics "/music/<Artist>/<Album (Year)>"
+mi lyrics --retry-all           # ignore the 30-day memory
 ```
 
 To remove all fetched lyrics again, delete the `.lrc` files and the `.txt` files recorded as `plain`:
@@ -87,7 +87,7 @@ When an imported album has the same album artist and album title as one already 
 - `import.duplicate_action: remove` makes beets remove the old album before moving the new one in. The new copy can therefore take over the same `Artist/Album (Year)` folder.
 - The `musicimporter` beets plugin (`beetsplug_local/musicimporter.py`) changes how the old album is removed. Instead of deleting files one by one, it moves the old album's whole folder, including booklets and other extras, to `/srv/media/music-replaced/<date time> <Artist> - <Album>/`. It also logs the move to `data/replaced.jsonl`.
 - Set-aside copies are deleted after `REPLACED_KEEP_DAYS` (30). The purge runs after each import.
-- To undo a replacement within that window, move the folder back into the library, then drop it into the inbox or run `music-importer import` on it.
+- To undo a replacement within that window, move the folder back into the library, then drop it into the inbox or run `mi import` on it.
 
 Duplicates are found by exact album artist and album title, as stored in the beets database. Two things follow from that:
 - An older album whose tags spell the title differently is not detected, and both copies stay. For example `Mezmerize` vs `Mesmerize`, or a title with `(Remastered)` added.
@@ -108,22 +108,22 @@ Titles follow MusicBrainz spelling, for example `Everybody’s Fool` and `My Imm
 
 ## Commands
 
-`bin/music-importer` is a front end for the container, symlinked to `~/.local/bin/music-importer`, so it works from any folder:
+`bin/mi` is a front end for the container, symlinked to `~/.local/bin/mi`, so it works from any folder:
 
 ```bash
-music-importer status                     # container state, inbox, last imports
-music-importer history 20                 # the last 20 imports
-music-importer logs -f                    # follow the container log
-music-importer import ~/music-inbox/_not-imported/<folder> --mbid <id>   # force a release
-music-importer import "/downloads/<folder>"                              # retry an slskd folder
-music-importer import "/downloads/<folder>" --as-is      # keep own tags, no MusicBrainz
-music-importer art "/srv/media/music/<Artist>/<Album (Year)>"   # redo cover art only
-music-importer index                      # re-register the library (read-only)
-music-importer restart | deploy | shell   # restart, rebuild from this project, open a shell
-music-importer help
+mi status                     # container state, inbox, last imports
+mi history 20                 # the last 20 imports
+mi logs -f                    # follow the container log
+mi import ~/music-inbox/_not-imported/<folder> --mbid <id>   # force a release
+mi import "/downloads/<folder>"                              # retry an slskd folder
+mi import "/downloads/<folder>" --as-is      # keep own tags, no MusicBrainz
+mi art "/srv/media/music/<Artist>/<Album (Year)>"   # redo cover art only
+mi index                      # re-register the library (read-only)
+mi restart | deploy | shell   # restart, rebuild from this project, open a shell
+mi help
 ```
 
-- **Container commands:** anything that isn't a host command (`status`, `history`, `logs`, `restart`, `deploy`, `shell`) runs the CLI inside the container. `music-importer <command> --help` shows that command's options.
+- **Container commands:** anything that isn't a host command (`status`, `history`, `logs`, `restart`, `deploy`, `shell`) runs the CLI inside the container. `mi <command> --help` shows that command's options.
 - **Path translation:** host paths are translated to container paths, so a relative path works too. The inbox and `~/music-inbox` map to `/inbox`, the library to `/music`, slskd downloads to `/downloads`, and `data/` to `/data`. Container paths are passed through unchanged.
 - **Terminal:** the interactive Bandcamp picker gets a terminal when you run the command in one. In scripts and pipes it runs without one.
 
@@ -135,13 +135,13 @@ Imports releases from **your own Bandcamp collection**: purchases and claimed fr
 name-your-price downloads, as FLAC. Pre-orders and physical-only items are skipped.
 
 ```bash
-music-importer bandcamp                      # browse and pick (full screen)
-music-importer bandcamp list                 # everything you own
-music-importer bandcamp list pelican         # filtered
-music-importer bandcamp album https://pelican.bandcamp.com/album/australasia
-music-importer bandcamp album "pelican - city of"   # part of "Artist - Title"
-music-importer bandcamp artist https://pelican.bandcamp.com
-music-importer bandcamp artist "Pelican"             # by name
+mi bandcamp                      # browse and pick (full screen)
+mi bandcamp list                 # everything you own
+mi bandcamp list pelican         # filtered
+mi bandcamp album https://pelican.bandcamp.com/album/australasia
+mi bandcamp album "pelican - city of"   # part of "Artist - Title"
+mi bandcamp artist https://pelican.bandcamp.com
+mi bandcamp artist "Pelican"             # by name
 ```
 
 **Browsing:** `bandcamp` on its own opens a full-screen checklist of your whole collection.
@@ -190,7 +190,7 @@ Talking to Bandcamp (its bot challenge, the collection API and download links) i
 | `src/music_importer/fingerprint.py` | AcoustID identification and provisional tags |
 | `src/music_importer/art.py` | Cover normalisation (same rules as the library clean-up) |
 | `config/beets.yaml` | beets configuration template; paths and the API key are filled in at runtime |
-| `bin/music-importer` | Host front end for the container, symlinked into `~/.local/bin` |
+| `bin/mi` | Host front end for the container, symlinked into `~/.local/bin` |
 | `requirements.lock` | Frozen dependencies, built from `pip freeze` in the base image |
 
 ## Deployment
@@ -208,7 +208,7 @@ The slskd side is set in `slskd/data/slskd.yml` under `integrations.webhooks.mus
 To deploy a change, bump `version` in `pyproject.toml` if you want a new image tag, then:
 
 ```bash
-music-importer deploy
+mi deploy
 ```
 
 `deploy` sets the image tag in `docker-compose.yml` to the project version, rebuilds the image and recreates the container.

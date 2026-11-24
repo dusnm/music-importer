@@ -75,8 +75,7 @@ def park(folder: Path, inbox: Path, result: dict) -> Path | None:
     note += [
         'To retry, move the folder back into the inbox (fix tags first), or force a',
         'MusicBrainz release on the server:',
-        '  cd ~/.local/share/docker/music-importer && docker-compose exec music-importer \\',
-        f'    music-importer import "/inbox/{NOT_IMPORTED}/{dest.name}" --mbid <release id>',
+        f'  mi import "/inbox/{NOT_IMPORTED}/{dest.name}" --mbid <release id>',
         '',
         'For a custom album (fan edit, own compilation) add "[as-is]" to the folder name',
         'before moving it back: it is then imported with its own tags, without MusicBrainz.',

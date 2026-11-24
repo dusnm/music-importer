@@ -1,6 +1,6 @@
 #!/bin/bash
 # Host-side front end for the music-importer container.
-# Lives in ~/projects/music-importer/bin, symlinked to ~/.local/bin/music-importer.
+# Lives in ~/projects/music-importer/bin, symlinked to ~/.local/bin/mi.
 #
 # Anything that isn't a host command below is passed to the CLI inside the container,
 # with host paths (e.g. ~/music-inbox/Some Album) translated to container paths.
@@ -23,7 +23,7 @@ PATH_MAP=(
 )
 
 error() {
-    echo "music-importer: $*" >&2
+    echo "mi: $*" >&2
     exit 1
 }
 
@@ -33,7 +33,7 @@ dc() {
 
 usage() {
     cat <<'EOF'
-Usage: music-importer COMMAND [ARGS...]
+Usage: mi COMMAND [ARGS...]
 
 Importing (run inside the container):
   import DIR [--mbid ID | --as-is]   import a folder now (host or container path)
@@ -56,7 +56,7 @@ On the host:
 
 Host paths are translated, e.g. ~/music-inbox/_not-imported/Foo -> /inbox/_not-imported/Foo,
 /srv/media/music/... -> /music/..., slskd downloads -> /downloads/...
-Any other arguments are passed through unchanged; `music-importer COMMAND --help` shows
+Any other arguments are passed through unchanged; `mi COMMAND --help` shows
 the options of a container command.
 EOF
 }
@@ -83,7 +83,7 @@ running() {
 }
 
 in_container() {
-    running || error "the $SERVICE container is not running (try: music-importer restart)"
+    running || error "the $SERVICE container is not running (try: mi restart)"
     local args=() a tty=()
     for a in "$@"; do
         args+=("$(to_container_path "$a")")

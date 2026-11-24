@@ -248,7 +248,7 @@ def choose(items, prompt: str, *, assume_yes: bool, state: dict) -> list:
         return items
     if not sys.stdin.isatty():
         raise BandcampImportError('several matches and no terminal to ask on: be more specific, '
-                                  'or pass --yes to take all of them (run with "docker-compose exec")')
+                                  'or pass --yes to take all of them (run "mi" in a terminal)')
     while True:
         ans = input(f'{prompt} [Enter = all, e.g. 1,3-5, q = quit]: ').strip().lower()
         if ans in ('', 'a', 'all', 'y', 'yes'):
@@ -291,7 +291,7 @@ def main(a) -> int:
                 hits = find_albums(items, q)
                 if not hits:
                     raise BandcampImportError(f'nothing in your collection matches {q!r} '
-                                              '(see "music-importer bandcamp list")')
+                                              '(see "mi bandcamp list")')
                 if len(hits) > 1:
                     print(f'{len(hits)} releases match {q!r}:')
                     hits = choose(hits, 'Import which?', assume_yes=a.yes, state=state)
@@ -300,7 +300,7 @@ def main(a) -> int:
             hits = find_artist(items, a.query)
             if not hits:
                 raise BandcampImportError(f'you own nothing from {a.query!r} on Bandcamp '
-                                          '(see "music-importer bandcamp list")')
+                                          '(see "mi bandcamp list")')
             artists = sorted({h.band_name for h in hits})
             hits.sort(key=lambda i: i.item_title.casefold())
             print(f'You own {len(hits)} release(s) from {", ".join(artists)}:')
