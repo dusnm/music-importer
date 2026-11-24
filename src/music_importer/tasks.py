@@ -9,7 +9,7 @@ import os
 import time
 from pathlib import Path
 
-from . import art, bandcamp, inbox, jobs, lyrics, pipeline
+from . import art, bandcamp, coverfetch, inbox, jobs, lyrics, pipeline
 
 SETTLE_SECONDS = float(os.environ.get('SETTLE_SECONDS', '10'))
 INBOX_DIR = os.environ.get('INBOX_DIR', '')
@@ -53,7 +53,9 @@ def run_import(p: dict, row=None) -> dict:
 def run_art(p: dict, row=None) -> dict:
     folder = Path(p['folder'])
     jobs.progress(f'cover art: {folder.name}')
-    rep = art.fix_album_art(folder, pipeline.audio_files(folder))
+    tracks = pipeline.audio_files(folder)
+    rep = art.fix_album_art(folder, tracks)
+    rep = coverfetch.fill(folder, tracks, rep, pipeline.Settings().fanarttv_key)
     return {**rep, '_summary': '; '.join(rep.get('actions', [])) or 'nothing to do'}
 
 

@@ -5,7 +5,7 @@ it here instead and waits. On the host, `mi` wraps this command.
 
   music-importer serve                       run the server: webhook, inbox watcher, job worker
   music-importer import DIR [--mbid ID|--as-is] [--fg]   import a folder
-  music-importer art DIR [--fg]              normalise cover art of an album folder in place
+  music-importer art DIR [--fg]              cover art of an album folder: normalise it, or download one if none
   music-importer lyrics [DIR] [--retry-all] [--fg]  fetch LRCLIB lyrics for the library (or DIR)
   music-importer bandcamp [...]              your Bandcamp collection (see bandcamp --help)
   music-importer index                       register the existing library in the beets DB

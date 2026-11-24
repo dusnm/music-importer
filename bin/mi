@@ -51,7 +51,7 @@ Add --fg to run it right here and wait instead.
 
 Importing (queued as background jobs):
   import DIR [--mbid ID | --as-is]   import a folder (host or container path)
-  art DIR                            redo cover art of an album folder
+  art DIR                            cover art of an album folder: normalise, or download if none
   lyrics [DIR] [--retry-all]         fetch lyrics for the library or one folder
   bandcamp                           browse your Bandcamp collection and pick releases
   bandcamp album URL|TEXT...         import releases you own

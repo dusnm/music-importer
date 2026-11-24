@@ -35,6 +35,7 @@ For each completed folder, whether from slskd or the drop folder, it does the fo
    - beets runs again and matches by that id.
 3. **Cover art.**
    - beets' `fetchart` takes the folder image if it is at least 600 px. Otherwise it fetches from the Cover Art Archive, then from fanart.tv when `FANARTTV_API_KEY` is set.
+   - If that leaves the album without a cover, which is typical for `[as-is]` and Bandcamp imports that have no MusicBrainz ID, it is looked up online. The lookup tries the Cover Art Archive by any MusicBrainz ID in the tags. Otherwise it searches MusicBrainz by artist and album, read-only, so nothing is written to the tags, and tries the Cover Art Archive and fanart.tv for that release group. Last comes the iTunes catalogue. Covers smaller than 600 px are ignored.
    - `art.py` then keeps a single `cover.jpg`: the largest source, capped at 1200 px, JPEG q85 4:2:0, progressive and mozjpeg-optimised. This is the same treatment as the rest of the library.
    - Other cover copies are removed, and embedded pictures are stripped from the tracks.
 4. **Genre.** `lastgenre` adds one genre if the files have none.
@@ -118,7 +119,7 @@ mi logs -f                    # follow the container log
 mi import ~/music-inbox/_not-imported/<folder> --mbid <id>   # force a release
 mi import "/downloads/<folder>"                              # retry an slskd folder
 mi import "/downloads/<folder>" --as-is      # keep own tags, no MusicBrainz
-mi art "/path/to/music/<Artist>/<Album (Year)>"   # redo cover art only (host or container path)
+mi art "/path/to/music/<Artist>/<Album (Year)>"   # cover art only: normalise, or download if missing
 mi index                      # re-register the library (read-only)
 mi restart | deploy | shell   # restart, rebuild from this project, open a shell
 mi help

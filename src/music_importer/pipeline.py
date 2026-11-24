@@ -13,7 +13,7 @@ from pathlib import Path
 
 import yaml
 
-from . import art, fingerprint, jobs, lyrics
+from . import art, coverfetch, fingerprint, jobs, lyrics
 
 log = logging.getLogger(__name__)
 
@@ -197,6 +197,7 @@ def import_folder(folder: Path, s: Settings | None = None, *, search_id: str | N
     for album_id, root, album_tracks in albums:
         jobs.progress(f'cover art: {root.name}', force=True)
         rep = art.fix_album_art(root, album_tracks)
+        rep = coverfetch.fill(root, album_tracks, rep, s.fanarttv_key)   # none found: look online
         cover = root / 'cover.jpg'
         set_artpath(s, album_id, cover if cover.exists() else None)
         rep['tracks'] = len(album_tracks)
