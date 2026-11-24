@@ -1,7 +1,7 @@
 """Search Soulseek through slskd and queue album downloads (slskd's REST API).
 
   music-importer slskd search [--lossless] [-n N] [--pick 1,3] WORDS...
-  music-importer slskd downloads
+  music-importer slskd downloads [clear [--failed]]
 
 Results are grouped into folders (one remote folder = one album, usually), sorted by
 free upload slot first, then upload speed, then the user's queue length. Picking a folder
@@ -212,8 +212,39 @@ def downloads() -> list[tuple[str, str, int, int, float, str]]:
     return out
 
 
+def clear(*, failed_only: bool = False) -> tuple[dict[str, int], int]:
+    """Remove finished downloads from slskd's list (records only; files on disk stay).
+
+    Returns the removed count per state and how many unfinished downloads were kept."""
+    removed: dict[str, int] = {}
+    kept = 0
+    for user in _call('GET', '/transfers/downloads') or []:
+        name = requests.utils.quote(user['username'], safe='')
+        for d in user.get('directories', []):
+            for f in d.get('files', []):
+                if not f.get('state', '').startswith('Completed'):
+                    kept += 1
+                    continue
+                state = _state(f['state'])
+                if failed_only and state == 'succeeded':
+                    continue
+                _call('DELETE', f'/transfers/downloads/{name}/{f["id"]}', params={'remove': 'true'})
+                removed[state] = removed.get(state, 0) + 1
+    return removed, kept
+
+
 def main(a) -> int:
     try:
+        if a.slskd_cmd == 'downloads' and a.downloads_cmd == 'clear':
+            removed, kept = clear(failed_only=a.failed)
+            if removed:
+                print(f'cleared {sum(removed.values())} download(s): '
+                      + ', '.join(f'{n} {s}' for s, n in sorted(removed.items())))
+            else:
+                print('nothing to clear')
+            if kept:
+                print(f'{kept} queued/downloading file(s) kept')
+            return 0
         if a.slskd_cmd == 'downloads':
             rows = downloads()
             if not rows:
@@ -275,4 +306,8 @@ def add_parser(sub) -> None:
     se.add_argument('-n', type=int, default=25, help='list at most this many folders (default 25)')
     se.add_argument('--pick', help='queue these list numbers without asking, e.g. 1 or 1,3')
     se.add_argument('words', nargs='+', help='what to search for, e.g. artist and album')
-    ssub.add_parser('downloads', help='what slskd is downloading')
+    dl = ssub.add_parser('downloads', help='what slskd is downloading')
+    dsub = dl.add_subparsers(dest='downloads_cmd', required=False, description='without one: list the downloads')
+    cl = dsub.add_parser('clear', help='remove finished downloads from slskd\'s list (queued and running ones stay)')
+    cl.add_argument('--failed', action='store_true',
+                    help='only unsuccessful ones (errored, cancelled, rejected, timed out); keep the succeeded ones')

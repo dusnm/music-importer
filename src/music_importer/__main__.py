@@ -11,6 +11,7 @@ it here instead and waits. On the host, `mi` wraps this command.
   music-importer find WORDS... [-n N]        search the library's album folders
   music-importer slskd search [--lossless] [--pick N] WORDS...   search Soulseek, queue album downloads
   music-importer slskd downloads             what slskd is downloading
+  music-importer slskd downloads clear [--failed]   remove finished downloads from slskd's list
   (art, lyrics and retag also take search words instead of DIR, e.g. retag plagues babylon)
   music-importer bandcamp [...]              your Bandcamp collection (see bandcamp --help)
   music-importer index                       register the existing library in the beets DB

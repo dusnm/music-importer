@@ -64,6 +64,8 @@ the album is picked when one clearly matches best, otherwise you choose from a l
   bandcamp list [FILTER]             list what you own on Bandcamp (runs right away)
   slskd search [--lossless] WORDS... search Soulseek; folders by free slot and speed; pick to queue
   slskd downloads                    what slskd is downloading (finished folders get imported)
+  slskd downloads clear [--failed]   remove finished downloads from slskd's list; --failed: only
+                                     unsuccessful ones (queued and running downloads always stay)
   index                              re-register the library in the beets DB (runs right away)
 
 Jobs:

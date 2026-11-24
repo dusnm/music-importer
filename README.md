@@ -215,6 +215,7 @@ mi slskd search iced earth plagues of babylon          # list album folders, pic
 mi slskd search --lossless iced earth plagues of babylon   # only lossless folders (FLAC, WAV, AIFF, ALAC, APE, WavPack)
 mi slskd search --pick 1 ...                           # queue number 1 without asking (scripts)
 mi slskd downloads                                     # what slskd is downloading
+mi slskd downloads clear [--failed]                    # remove finished downloads from slskd's list
 ```
 
 - **Results:** the search runs for up to 45 s (`SLSKD_SEARCH_SECONDS`). Matching files are grouped into folders, one per album as a rule.
@@ -223,6 +224,7 @@ mi slskd downloads                                     # what slskd is downloadi
 - **Queuing:**
   - Picking a folder, e.g. `1` or `1,3-4`, asks that user for the folder's full contents and queues all of it. Covers, logs and tracks that didn't match the search come along.
   - When slskd completes the folder, its webhook hands it to the importer as with any download. Watch with `mi jobs`.
+- **`downloads clear`:** removes slskd's records of finished downloads: all of them, or with `--failed` only the unsuccessful ones (errored, cancelled, rejected, timed out). Queued and running downloads always stay, and downloaded files are not touched. slskd also drops finished records by itself after a day.
 - **Multi-disc albums:** slskd saves every remote folder under its own name, so an album whose discs sit in `CD1`/`CD2` subfolders arrives as separate folders. Queue the album's parent folder from slskd's web UI instead, or combine the discs and drop them into the inbox.
 - **Setup:** a readwrite API key in slskd's `slskd.yml` (`web.authentication.api_keys`, limited to the Docker network shared with the importer), and the same key in the importer's `.env` as `SLSKD_API_KEY`, with `SLSKD_URL=http://slskd:5030`.
 
