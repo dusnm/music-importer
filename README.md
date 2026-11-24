@@ -131,6 +131,33 @@ mi help
 
 `--mbid` takes the release id from a `https://musicbrainz.org/release/<id>` URL. Use it when a folder was left behind because no match was confident enough.
 
+## Using mi from another machine
+
+`bin/mi-remote` is `mi` for the laptop. It runs every command on the server over SSH:
+
+```bash
+# install on the laptop, once
+mkdir -p ~/.local/bin
+scp you@server:projects/music-importer/bin/mi-remote ~/.local/bin/mi && chmod +x ~/.local/bin/mi
+ssh-copy-id you@server     # optional: key login instead of a password per command
+
+mi jobs                            # any mi command, run on the server
+mi bandcamp                        # the full-screen picker works too
+mi follow
+mi push ~/Music/"Some Album" [--as-is]   # upload album folders from the laptop into the inbox
+```
+
+- **Arguments and terminal:** arguments are passed through exactly, spaces and quotes included. A terminal is requested only when you run `mi` in one, so the pickers and `mi follow` work interactively while scripts and pipes get plain output.
+- **Speed:** one SSH connection is shared for 10 minutes, so repeated commands start instantly. Only the first one asks for a password, if you don't use a key.
+- **Paths:** paths in commands are server paths, for example `/srv/media/music/...`. To import something from the laptop, use `mi push`.
+- **`mi push`:**
+  - Uploads each folder with rsync, showing progress, into a hidden folder in the inbox. When the upload completes, it renames the folder in one step, so the importer never sees a half-copied album.
+  - The import then starts about a minute later, like any inbox drop. `--as-is` adds `[as-is]` to the folder name.
+  - If a folder with that name is already in the inbox, the upload is kept under its hidden name and you are told where.
+- **Settings:** `MI_HOST` (default `you@server`) and `MI_INBOX`, e.g. `MI_HOST=you@music.example mi jobs` from outside the LAN, if SSH is reachable there.
+- **Requirements on the laptop:** bash, ssh and rsync.
+- **Updating:** after the script changes, copy it to the laptop again with the same `scp`.
+
 ## Background jobs
 
 Everything that changes the library runs as a **job**: `import`, `art`, `lyrics`, and Bandcamp
@@ -224,6 +251,7 @@ Talking to Bandcamp (its bot challenge, the collection API and download links) i
 | `src/music_importer/art.py` | Cover normalisation (same rules as the library clean-up) |
 | `config/beets.yaml` | beets configuration template; paths and the API key are filled in at runtime |
 | `bin/mi` | Host front end for the container, symlinked into `~/.local/bin` |
+| `bin/mi-remote` | `mi` for another machine: runs it on the server over SSH, plus `mi push` |
 | `requirements.lock` | Frozen dependencies, built from `pip freeze` in the base image |
 
 ## Deployment

@@ -1,0 +1,86 @@
+#!/bin/bash
+# `mi` for another machine (e.g. the laptop): runs mi on the music server over SSH.
+#
+# Install on the laptop as ~/.local/bin/mi (see the README, "Using mi from another machine"):
+#   scp you@server:projects/music-importer/bin/mi-remote ~/.local/bin/mi && chmod +x ~/.local/bin/mi
+#
+#   mi jobs / mi follow / mi bandcamp / ...   any mi command, run on the server
+#   mi push DIR... [--as-is]                   upload album folders from here into the inbox
+#
+# Settings (environment): MI_HOST (default you@server), MI_INBOX (server inbox path).
+
+set -euo pipefail
+
+MI_HOST="${MI_HOST:-you@server}"
+MI_INBOX="${MI_INBOX:-/srv/media/music-inbox}"
+MI_REMOTE_BIN='~/.local/bin/mi'   # expanded by the server's shell
+
+# One shared SSH connection, kept open 10 minutes: repeated commands start instantly.
+SSH_OPTS=(-o ControlMaster=auto -o "ControlPath=$HOME/.ssh/mi-%C" -o ControlPersist=10m
+          -o LogLevel=ERROR)
+
+error() {
+    echo "mi: $*" >&2
+    exit 1
+}
+
+quote_args() {
+    local out="" a
+    for a in "$@"; do
+        out+=" $(printf '%q' "$a")"
+    done
+    printf '%s' "$out"
+}
+
+remote() {
+    local tty=(-T)
+    [[ -t 0 && -t 1 ]] && tty=(-t)  # pickers and live progress need a terminal; pipes must not get one
+    exec ssh "${SSH_OPTS[@]}" "${tty[@]}" "$MI_HOST" "$MI_REMOTE_BIN$(quote_args "$@")"
+}
+
+push() {
+    local as_is=0 dirs=() d
+    for d in "$@"; do
+        case "$d" in
+            --as-is) as_is=1 ;;
+            -h|--help)
+                echo "usage: mi push DIR... [--as-is]   upload album folders into the server's inbox"
+                echo "  --as-is  add \"[as-is]\" to the folder names: keep their own tags, skip MusicBrainz"
+                return 0 ;;
+            -*) error "push: unknown option $d" ;;
+            *) dirs+=("$d") ;;
+        esac
+    done
+    (( ${#dirs[@]} )) || error "push: which folder(s)? (mi push DIR... [--as-is])"
+    command -v rsync >/dev/null || error "push needs rsync on this machine"
+    for d in "${dirs[@]}"; do
+        [[ -d "$d" ]] || error "push: not a folder: $d"
+    done
+    for d in "${dirs[@]}"; do
+        local name
+        name="$(basename -- "$(cd -- "$d" && pwd)")"
+        if (( as_is )) && [[ ! "${name,,}" =~ \[[[:space:]]*as[[:space:]_-]?is[[:space:]]*\] ]]; then
+            name="$name [as-is]"
+        fi
+        # Upload into a hidden folder (the watcher ignores names starting with "."), then rename
+        # it in one step, so the importer never sees a half-copied album.
+        local tmp="$MI_INBOX/.upload-$$-$RANDOM"
+        echo "uploading $d -> inbox/$name"
+        rsync -a --info=progress2 --chmod=D755,F644 -e "ssh ${SSH_OPTS[*]}" -- "${d%/}/" "$MI_HOST:$tmp/"
+        ssh "${SSH_OPTS[@]}" -T "$MI_HOST" "$(printf 'dest=%q/%q; src=%q; if [ -e "$dest" ]; then echo "mi: $dest already exists; the upload was left in $src" >&2; exit 1; fi; mv -- "$src" "$dest"' \
+            "$MI_INBOX" "$name" "$tmp")"
+    done
+    echo "done: the importer picks the folder(s) up after about a minute; watch with: mi follow"
+}
+
+case "${1:-}" in
+    push) shift; push "$@" ;;
+    help|-h|--help|"")
+        ssh "${SSH_OPTS[@]}" -T "$MI_HOST" "$MI_REMOTE_BIN help" || true
+        echo
+        echo "From this machine also:"
+        echo "  push DIR... [--as-is]              upload album folders into the server's inbox"
+        echo "Paths in other commands are paths on the server (e.g. /srv/media/music-inbox/...)."
+        ;;
+    *) remote "$@" ;;
+esac

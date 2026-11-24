@@ -151,7 +151,7 @@ def download(bc, item, dest: Path, fmt: str) -> Path:
     with temporary_download_path(dest.parent) as tmp:
         try:
             with open(tmp, 'wb') as fh:
-                content_type = _stream(url, fh, bc.browser_profile, label(item))
+                content_type = _stream(url, fh, bc.browser_profile, label(item), item.download_url)
         except (BandcampImportError, jobs.Cancelled):
             raise
         except Exception as e:  # network errors, corrupt responses ...
@@ -172,17 +172,23 @@ def download(bc, item, dest: Path, fmt: str) -> Path:
     return dest
 
 
-def _stream(url: str, fh, profile: str, what: str) -> str:
+def _stream(url: str, fh, profile: str, what: str, page: str = '') -> str:
     """Download url into fh, reporting progress; returns the content type."""
     from curl_cffi import requests
+    from bandcampsync.download import _is_expired_download_page
     r = requests.get(url, stream=True, impersonate=profile, timeout=60)
     try:
         if r.status_code != 200:
             raise BandcampImportError(f'download failed: HTTP {r.status_code}')
         ctype = (r.headers.get('Content-Type') or '').split(';')[0].strip()
         if ctype == 'text/html':
-            raise BandcampImportError('Bandcamp returned a web page instead of the file (the link may '
-                                      'need an e-mail confirmation: open the release once in the browser)')
+            body = b''.join(r.iter_content(chunk_size=64 * 1024)).decode('utf-8', 'replace')
+            if _is_expired_download_page(body):
+                raise BandcampImportError(
+                    'the download link has expired and Bandcamp wants to e-mail you a new one: open '
+                    f'{page or "the release in your collection"} in a browser, click to send the e-mail, '
+                    'open the link in it, then retry this job (mi retry <job>)')
+            raise BandcampImportError('Bandcamp returned a web page instead of the file')
         total = int(r.headers.get('Content-Length') or 0)
         done, t0 = 0, time.monotonic()
         for chunk in r.iter_content(chunk_size=256 * 1024):
@@ -242,7 +248,7 @@ def import_and_record(bc, item, s: pipeline.Settings, *, fmt: str, as_is: bool,
     try:
         res = import_item(bc, item, s, fmt=fmt, as_is=as_is)
     except BandcampImportError as e:
-        return False, f'failed: {e}', None
+        return False, str(e), None
     dirs = ', '.join(a['dir'] for a in res.get('albums', []))
     how = res.get('fallback') or res.get('match', '')
     summary = (res['status'] + (f' -> {dirs}' if dirs else '') + (f' ({how})' if dirs else '')
