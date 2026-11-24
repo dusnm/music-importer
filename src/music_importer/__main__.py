@@ -10,11 +10,11 @@ it here instead and waits. On the host, `mi` wraps this command.
   music-importer bandcamp [...]              your Bandcamp collection (see bandcamp --help)
   music-importer index                       register the existing library in the beets DB
   music-importer jobs [-n N]                 queued, running and recent jobs
+  music-importer jobs clear [--failed]       remove finished jobs from the list (--failed: unsuccessful only)
   music-importer job ID [--log]              one job in detail
   music-importer follow [ID] [--log]         watch a job (default: all active ones) live
   music-importer cancel ID...                cancel queued jobs / stop running ones
   music-importer retry ID...                 queue a finished job again
-  music-importer clear [--failed]            remove finished jobs from the list (--failed: unsuccessful only)
 """
 from __future__ import annotations
 
@@ -192,6 +192,10 @@ def main(argv: list[str] | None = None) -> int:
     bandcamp.add_parser(sub)
     js = sub.add_parser('jobs', help='queued, running and recent jobs')
     js.add_argument('-n', type=int, default=10, help='how many recent jobs (default 10)')
+    jsub = js.add_subparsers(dest='jobs_cmd', required=False, description='without one: list the jobs')
+    cl = jsub.add_parser('clear', help='remove finished jobs from the list (queued and running ones stay)')
+    cl.add_argument('--failed', action='store_true',
+                    help='only unsuccessful ones (failed, cancelled, interrupted); keep the done ones')
     jb = sub.add_parser('job', help='one job in detail')
     jb.add_argument('id', type=int)
     jb.add_argument('--log', action='store_true', help='the whole log, not just the end')
@@ -202,9 +206,6 @@ def main(argv: list[str] | None = None) -> int:
     ca.add_argument('ids', type=int, nargs='+')
     rt = sub.add_parser('retry', help='queue finished jobs again')
     rt.add_argument('ids', type=int, nargs='+')
-    cl = sub.add_parser('clear', help='remove finished jobs from the list (queued and running ones stay)')
-    cl.add_argument('--failed', action='store_true',
-                    help='only unsuccessful ones (failed, cancelled, interrupted); keep the done ones')
     a = ap.parse_args(argv)
 
     # The server logs everything; interactive commands only show warnings unless -v.
@@ -232,7 +233,7 @@ def main(argv: list[str] | None = None) -> int:
     elif a.cmd == 'bandcamp':
         return bandcamp.main(a)
     elif a.cmd == 'jobs':
-        return cmd_jobs(a)
+        return cmd_clear(a) if a.jobs_cmd == 'clear' else cmd_jobs(a)
     elif a.cmd == 'job':
         return cmd_job(a)
     elif a.cmd == 'follow':
@@ -241,8 +242,6 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_cancel(a)
     elif a.cmd == 'retry':
         return cmd_retry(a)
-    elif a.cmd == 'clear':
-        return cmd_clear(a)
     return 0
 
 

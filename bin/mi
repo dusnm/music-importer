@@ -50,12 +50,12 @@ Importing (queued as background jobs):
 
 Jobs:
   jobs [-n N]                        queued, running and the last N finished jobs
+  jobs clear [--failed]              remove finished jobs from the list; --failed: only
+                                     unsuccessful ones (queued and running jobs always stay)
   job ID [--log]                     one job: state, timings, outcome and log
   follow [ID] [--log]                live progress of a job (default: every queued/running one)
   cancel ID...                       cancel queued jobs, stop running ones
   retry ID...                        queue a failed/interrupted job again
-  clear [--failed]                   remove finished jobs from the list; --failed: only
-                                     unsuccessful ones (queued and running jobs always stay)
 
 On the host:
   status                             container state, inbox, active jobs and the last imports
