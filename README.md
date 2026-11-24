@@ -1,6 +1,6 @@
 # music-importer
 
-Imports albums downloaded by slskd into the music library at `/srv/media/music`, which Navidrome serves.
+Imports albums into a music library served by Navidrome (or any player that reads tags): downloads from slskd, folders dropped into an inbox, and your Bandcamp purchases. It runs as a Docker container; the paths below are as seen inside it (`/music`, `/inbox`, `/downloads`, `/data`).
 
 ```
 slskd ──DownloadDirectoryComplete webhook──▶ ┐
@@ -10,14 +10,12 @@ drop folder (SFTP) ──settled for 60 s──────▶ ┘
 
 ## Drop folder
 
-Copy album folders into **`/srv/media/music-inbox`**. On the server this is also reachable as `~/music-inbox`.
+Copy album folders into the inbox: the host folder mounted at `/inbox` (`mi inbox-path` prints it).
 
-To use it from GNOME Files on the laptop:
-1. Go to *Other Locations* → *Connect to Server*.
-2. Enter `sftp://you@server/srv/media/music-inbox`.
-3. Bookmark it with Ctrl+D.
-
-With sshfs: `sshfs you@server:/srv/media/music-inbox ~/music-inbox`
+From another machine, any SFTP client works. For example:
+- **GNOME Files:** go to *Other Locations* → *Connect to Server*, enter `sftp://you@server/path/to/music-inbox`, then bookmark it with Ctrl+D.
+- **sshfs:** `sshfs you@server:/path/to/music-inbox ~/music-inbox`
+- **`mi push`:** uploads safely from the command line (see [Using mi from another machine](#using-mi-from-another-machine)).
 
 How the drop folder works:
 - **Starting the import:** SFTP has no "copy finished" event. A top-level folder is imported once nothing in it has changed for `INBOX_STABLE_SECONDS`, 60 s by default, checked every 10 s. Changes are tracked through each file's ctime, count and size. ctime catches every write, even when the client restores the original modification times.
@@ -75,9 +73,10 @@ mi lyrics --retry-all           # ignore the 30-day memory
 To remove all fetched lyrics again, delete the `.lrc` files and the `.txt` files recorded as `plain`:
 
 ```bash
-find /srv/media/music -name '*.lrc' -delete
-sqlite3 data/lyrics.db "select path from tracks where status='plain'" \
-  | sed -E 's#^/music#/srv/media/music#; s#\.[^.]+$#.txt#' | tr '\n' '\0' | xargs -0 rm -f
+music="$(mi inbox-path >/dev/null && docker inspect -f '{{range .Mounts}}{{if eq .Destination "/music"}}{{.Source}}{{end}}{{end}}' music-importer)"
+find "$music" -name '*.lrc' -delete
+sqlite3 "$DATA_ROOT/music-importer/data/lyrics.db" "select path from tracks where status='plain'" \
+  | sed -E "s#^/music#$music#; s#\.[^.]+\$#.txt#" | tr '\n' '\0' | xargs -0 rm -f
 ```
 
 ## Duplicates: newer wins
@@ -85,7 +84,7 @@ sqlite3 data/lyrics.db "select path from tracks where status='plain'" \
 When an imported album has the same album artist and album title as one already in the library, the new copy replaces the old one. This works the same for slskd and the drop folder.
 
 - `import.duplicate_action: remove` makes beets remove the old album before moving the new one in. The new copy can therefore take over the same `Artist/Album (Year)` folder.
-- The `musicimporter` beets plugin (`beetsplug_local/musicimporter.py`) changes how the old album is removed. Instead of deleting files one by one, it moves the old album's whole folder, including booklets and other extras, to `/srv/media/music-replaced/<date time> <Artist> - <Album>/`. It also logs the move to `data/replaced.jsonl`.
+- The `musicimporter` beets plugin (`beetsplug_local/musicimporter.py`) changes how the old album is removed. Instead of deleting files one by one, it moves the old album's whole folder, including booklets and other extras, to `/replaced/<date time> <Artist> - <Album>/` (a host folder of your choice). It also logs the move to `data/replaced.jsonl`.
 - Set-aside copies are deleted after `REPLACED_KEEP_DAYS` (30). The purge runs after each import.
 - To undo a replacement within that window, move the folder back into the library, then drop it into the inbox or run `mi import` on it.
 
@@ -119,7 +118,7 @@ mi logs -f                    # follow the container log
 mi import ~/music-inbox/_not-imported/<folder> --mbid <id>   # force a release
 mi import "/downloads/<folder>"                              # retry an slskd folder
 mi import "/downloads/<folder>" --as-is      # keep own tags, no MusicBrainz
-mi art "/srv/media/music/<Artist>/<Album (Year)>"   # redo cover art only
+mi art "/path/to/music/<Artist>/<Album (Year)>"   # redo cover art only (host or container path)
 mi index                      # re-register the library (read-only)
 mi restart | deploy | shell   # restart, rebuild from this project, open a shell
 mi help
@@ -138,8 +137,9 @@ mi help
 ```bash
 # install on the laptop, once
 mkdir -p ~/.local/bin
-scp you@server:projects/music-importer/bin/mi-remote ~/.local/bin/mi && chmod +x ~/.local/bin/mi
-ssh-copy-id you@server     # optional: key login instead of a password per command
+scp you@server:path/to/music-importer/bin/mi-remote ~/.local/bin/mi && chmod +x ~/.local/bin/mi
+mkdir -p ~/.config/mi && echo you@server > ~/.config/mi/host
+ssh-copy-id you@server             # optional: key login instead of a password per command
 
 mi jobs                            # any mi command, run on the server
 mi bandcamp                        # the full-screen picker works too
@@ -149,12 +149,15 @@ mi push ~/Music/"Some Album" [--as-is]   # upload album folders from the laptop 
 
 - **Arguments and terminal:** arguments are passed through exactly, spaces and quotes included. A terminal is requested only when you run `mi` in one, so the pickers and `mi follow` work interactively while scripts and pipes get plain output.
 - **Speed:** one SSH connection is shared for 10 minutes, so repeated commands start instantly. Only the first one asks for a password, if you don't use a key.
-- **Paths:** paths in commands are server paths, for example `/srv/media/music/...`. To import something from the laptop, use `mi push`.
+- **Paths:** paths in commands are server paths. To import something from the laptop, use `mi push`.
 - **`mi push`:**
   - Uploads each folder with rsync, showing progress, into a hidden folder in the inbox. When the upload completes, it renames the folder in one step, so the importer never sees a half-copied album.
   - The import then starts about a minute later, like any inbox drop. `--as-is` adds `[as-is]` to the folder name.
   - If a folder with that name is already in the inbox, the upload is kept under its hidden name and you are told where.
-- **Settings:** `MI_HOST` (default `you@server`) and `MI_INBOX`, e.g. `MI_HOST=you@music.example mi jobs` from outside the LAN, if SSH is reachable there.
+- **Settings:**
+  - `MI_HOST`, or the first line of `~/.config/mi/host`: the server, as `user@host`. For example `MI_HOST=you@music.example.com mi jobs` from outside the LAN, if SSH is reachable there.
+  - `MI_INBOX`: the server's inbox folder. It's asked from the server when unset.
+  - `MI_REMOTE_BIN`: where `mi` is on the server. The default is `~/.local/bin/mi`.
 - **Requirements on the laptop:** bash, ssh and rsync.
 - **Updating:** after the script changes, copy it to the laptop again with the same `scp`.
 
@@ -258,23 +261,25 @@ Talking to Bandcamp (its bot challenge, the collection API and download links) i
 
 ## Deployment
 
-The deployment lives in `~/.local/share/docker/music-importer`:
+The container is one service of a Docker Compose setup. The reference setup is the `homelab`
+project (`services/music-importer/compose.yml` there), which builds the image from a checkout
+of this project (`MUSIC_IMPORTER_SRC`). What it needs:
 
-- **`docker-compose.yml`:** builds the image `music-importer:<version>` from this folder. The container runs as `1000:1000`.
-- **Mounts:** `/srv/media/music-inbox` is mounted as `/inbox` (environment variable `INBOX_DIR`). Leave `INBOX_DIR` unset to turn the drop folder off.
-- **Network:** the container joins the `slskd_default` network and publishes no ports.
-- **`.env`** (mode 600): `FANARTTV_API_KEY` is optional; leave it empty to use only the Cover Art Archive.
-- **`data/`:** holds the beets library DB (`library.db`), `beets-import.log` and `imports.jsonl`.
+- **Image:** built from this folder (`docker build .`); it runs as the library's owner (`user: UID:GID`).
+- **Mounts:**
+  - `/music`: the library.
+  - `/downloads`: slskd's download folder.
+  - `/inbox`: the drop folder. Leave `INBOX_DIR` unset to turn it off.
+  - `/replaced`: older copies set aside by newer-wins replacement.
+  - `/data`: state, including the beets DB `library.db`, `beets-import.log`, `imports.jsonl`, `jobs.db` and `lyrics.db`.
+- **Network:** the container joins slskd's network, so slskd can call `http://music-importer:8080/webhook`. It publishes no ports.
+- **Environment:** see the `environment:` block of that compose file.
+- **Secrets:** both optional. `FANARTTV_API_KEY` adds fanart.tv as a cover source; `BANDCAMP_COOKIES` enables `mi bandcamp`.
+- **Stopping:** `stop_grace_period: 2m`, so a running job can finish on `docker stop`.
 
-The slskd side is set in `slskd/data/slskd.yml` under `integrations.webhooks.music_importer`. It sends `DownloadDirectoryComplete` events to `http://music-importer:8080/webhook`.
+The slskd side is set in `slskd.yml` under `integrations.webhooks.music_importer`. It sends `DownloadDirectoryComplete` events to `http://music-importer:8080/webhook`.
 
-To deploy a change, bump `version` in `pyproject.toml` if you want a new image tag, then:
-
-```bash
-mi deploy
-```
-
-`deploy` sets the image tag in `docker-compose.yml` to the project version, rebuilds the image and recreates the container.
+`mi deploy` rebuilds and recreates the container: with `homelab build music-importer && homelab up music-importer` when the `homelab` command is installed, otherwise with whatever `MI_DEPLOY_CMD` says.
 
 ## Versions
 

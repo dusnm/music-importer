@@ -1,34 +1,45 @@
 #!/bin/bash
-# Host-side front end for the music-importer container.
-# Lives in ~/projects/music-importer/bin, symlinked to ~/.local/bin/mi.
+# Host-side front end for the music-importer container: symlink it onto your PATH as `mi`.
 #
-# Anything that isn't a host command below is passed to the CLI inside the container,
-# with host paths (e.g. ~/music-inbox/Some Album) translated to container paths.
+# Anything that isn't a host command below is passed to the CLI inside the container, with
+# host paths translated to container paths (read from the container's own mounts, so it
+# works wherever the music, inbox and data folders live).
+#
+# Settings (environment): MI_CONTAINER (default music-importer), MI_DEPLOY_CMD (how `mi
+# deploy` rebuilds and restarts; default: `homelab build music-importer && homelab up
+# music-importer` when the homelab command is available).
 
 set -euo pipefail
 
-DEPLOY_DIR="${MUSIC_IMPORTER_DEPLOY:-$HOME/.local/share/docker/music-importer}"
-COMPOSE_FILE="$DEPLOY_DIR/docker-compose.yml"
-SERVICE="music-importer"
+SERVICE="${MI_CONTAINER:-music-importer}"
 # The project folder is wherever this script really lives (it's usually run via a symlink).
 PROJECT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
-
-# host path prefix -> container path (most specific first)
-PATH_MAP=(
-    "/srv/media/music-inbox=/inbox"
-    "/srv/media/music-replaced=/replaced"
-    "/srv/media/music=/music"
-    "$HOME/.local/share/docker/slskd/data/downloads=/downloads"
-    "$DEPLOY_DIR/data=/data"
-)
 
 error() {
     echo "mi: $*" >&2
     exit 1
 }
 
-dc() {
-    docker-compose -f "$COMPOSE_FILE" "$@"
+# host path -> container path for every bind mount of the container, most specific first
+PATH_MAP=()
+load_mounts() {
+    (( ${#PATH_MAP[@]} )) && return 0
+    local line
+    while IFS= read -r line; do
+        [[ -n "$line" ]] && PATH_MAP+=("$line")
+    done < <(docker inspect -f '{{range .Mounts}}{{if eq .Type "bind"}}{{.Source}}={{.Destination}}{{println}}{{end}}{{end}}' \
+                 "$SERVICE" 2>/dev/null | awk -F= '{ print length($1) "\t" $0 }' | sort -rn | cut -f2-)
+    (( ${#PATH_MAP[@]} )) || error "the $SERVICE container does not exist (deploy it first)"
+}
+
+# The host folder mounted at a container path, e.g. host_path /inbox
+host_path() {
+    load_mounts
+    local entry
+    for entry in "${PATH_MAP[@]}"; do
+        [[ "${entry#*=}" == "$1" ]] && { printf '%s\n' "${entry%%=*}"; return 0; }
+    done
+    return 1
 }
 
 usage() {
@@ -66,8 +77,8 @@ On the host:
   shell                              a shell inside the container
   help                               this text
 
-Host paths are translated, e.g. ~/music-inbox/_not-imported/Foo -> /inbox/_not-imported/Foo,
-/srv/media/music/... -> /music/..., slskd downloads -> /downloads/...
+Host paths under the container's mounts are translated (the music library -> /music/...,
+the inbox -> /inbox/..., slskd downloads -> /downloads/...); container paths pass unchanged.
 `mi COMMAND --help` shows the options of a command; `mi -v COMMAND` shows detailed logs.
 EOF
 }
@@ -76,6 +87,7 @@ EOF
 to_container_path() {
     local arg="$1" real entry host ctr
     if [[ "$arg" != -* ]] && [[ -e "$arg" ]]; then
+        load_mounts
         real="$(readlink -f -- "$arg")"
         for entry in "${PATH_MAP[@]}"; do
             host="${entry%%=*}"
@@ -101,11 +113,15 @@ in_container() {
     done
     # Interactive pickers need a terminal; scripts and pipes must not get one.
     [[ -t 0 && -t 1 ]] || tty=(-T)
-    exec docker-compose -f "$COMPOSE_FILE" exec "${tty[@]}" "$SERVICE" music-importer "${args[@]}"
+    local tty_flag=(-i)
+    [[ ${#tty[@]} -eq 0 ]] && tty_flag=(-it)
+    exec docker exec "${tty_flag[@]}" "$SERVICE" music-importer "${args[@]}"
 }
 
 history() {
-    local n="${1:-10}" log="$DEPLOY_DIR/data/imports.jsonl"
+    local n="${1:-10}" data log
+    data="$(host_path /data)" || error "the $SERVICE container has no /data mount"
+    log="$data/imports.jsonl"
     [[ "$n" =~ ^[0-9]+$ ]] || error "history: N must be a number"
     [[ -f "$log" ]] || { echo "no imports yet"; return; }
     tail -n "$((n * 2))" "$log" | python3 -c "$(cat <<'PY'
@@ -143,10 +159,11 @@ PY
 status() {
     local state version
     state="$(docker inspect -f '{{.State.Status}}{{if .State.Health}} ({{.State.Health.Status}}){{end}} since {{.State.StartedAt}}' "$SERVICE" 2>/dev/null || echo 'not created')"
-    version="$(docker inspect -f '{{.Config.Image}}' "$SERVICE" 2>/dev/null || echo '?')"
+    version="$(docker exec "$SERVICE" python -c 'import music_importer as m; print(m.__version__)' 2>/dev/null || echo '?')"
     echo "container: $SERVICE $state"
-    echo "image:     $version (project: $(sed -n 's/^version = "\(.*\)"/\1/p' "$PROJECT_DIR/pyproject.toml"))"
-    local inbox="/srv/media/music-inbox"
+    echo "version:   $version (project: $(sed -n 's/^version = "\(.*\)"/\1/p' "$PROJECT_DIR/pyproject.toml"))"
+    local inbox
+    inbox="$(host_path /inbox)" || inbox="(no inbox mounted)"
     echo
     echo "inbox ($inbox):"
     local found=0 d
@@ -166,7 +183,7 @@ status() {
     echo
     echo "jobs:"
     if running; then
-        docker-compose -f "$COMPOSE_FILE" exec -T "$SERVICE" music-importer jobs -n 3 | sed 's/^/    /'
+        docker exec "$SERVICE" music-importer jobs -n 3 | sed 's/^/    /'
     else
         echo "    (container not running)"
     fi
@@ -176,16 +193,13 @@ status() {
 }
 
 deploy() {
-    local version image
-    version="$(sed -n 's/^version = "\(.*\)"/\1/p' "$PROJECT_DIR/pyproject.toml")"
-    [[ -n "$version" ]] || error "could not read the version from $PROJECT_DIR/pyproject.toml"
-    image="music-importer:$version"
-    if ! grep -q "image: $image\$" "$COMPOSE_FILE"; then
-        echo "updating $COMPOSE_FILE to $image"
-        sed -i "s|^\(\s*image:\s*\)music-importer:.*|\1$image|" "$COMPOSE_FILE"
+    if [[ -n "${MI_DEPLOY_CMD:-}" ]]; then
+        bash -c "$MI_DEPLOY_CMD"
+    elif command -v homelab >/dev/null; then
+        homelab build music-importer && homelab up music-importer
+    else
+        error "deploy: set MI_DEPLOY_CMD to the command that rebuilds and restarts the container"
     fi
-    dc build
-    dc up -d
 }
 
 cmd="${1:-help}"
@@ -210,17 +224,20 @@ case "$cmd" in
                 *) lines="$a" ;;
             esac
         done
-        exec docker-compose -f "$COMPOSE_FILE" logs --tail "$lines" "${follow[@]}" "$SERVICE"
+        exec docker logs --tail "$lines" "${follow[@]}" "$SERVICE"
         ;;
     restart)
-        dc restart "$SERVICE"
+        docker restart -t 120 "$SERVICE" >/dev/null && echo "restarted $SERVICE"   # running job may finish first
         ;;
     deploy)
         deploy
         ;;
+    inbox-path)   # for mi-remote: where the inbox is on this machine
+        host_path /inbox || error "the $SERVICE container has no /inbox mount"
+        ;;
     shell)
         running || error "the $SERVICE container is not running"
-        exec docker-compose -f "$COMPOSE_FILE" exec "$SERVICE" bash
+        exec docker exec -it "$SERVICE" bash
         ;;
     *)
         in_container "$@"

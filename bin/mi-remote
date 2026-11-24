@@ -2,18 +2,20 @@
 # `mi` for another machine (e.g. the laptop): runs mi on the music server over SSH.
 #
 # Install on the laptop as ~/.local/bin/mi (see the README, "Using mi from another machine"):
-#   scp you@server:projects/music-importer/bin/mi-remote ~/.local/bin/mi && chmod +x ~/.local/bin/mi
+#   scp you@server:path/to/music-importer/bin/mi-remote ~/.local/bin/mi && chmod +x ~/.local/bin/mi
+#   mkdir -p ~/.config/mi && echo you@server > ~/.config/mi/host
 #
 #   mi jobs / mi follow / mi bandcamp / ...   any mi command, run on the server
 #   mi push DIR... [--as-is]                   upload album folders from here into the inbox
 #
-# Settings (environment): MI_HOST (default you@server), MI_INBOX (server inbox path).
+# Settings: MI_HOST (user@server; or the first line of ~/.config/mi/host), MI_INBOX (the
+# server's inbox folder; asked from the server when unset), MI_REMOTE_BIN (mi on the server).
 
 set -euo pipefail
 
-MI_HOST="${MI_HOST:-you@server}"
-MI_INBOX="${MI_INBOX:-/srv/media/music-inbox}"
-MI_REMOTE_BIN='~/.local/bin/mi'   # expanded by the server's shell
+MI_HOST="${MI_HOST:-$(head -n1 "${XDG_CONFIG_HOME:-$HOME/.config}/mi/host" 2>/dev/null || true)}"
+MI_INBOX="${MI_INBOX:-}"
+MI_REMOTE_BIN="${MI_REMOTE_BIN:-~/.local/bin/mi}"   # a leading ~ is expanded by the server's shell
 
 # One shared SSH connection, kept open 10 minutes: repeated commands start instantly.
 SSH_OPTS=(-o ControlMaster=auto -o "ControlPath=$HOME/.ssh/mi-%C" -o ControlPersist=10m
@@ -23,6 +25,8 @@ error() {
     echo "mi: $*" >&2
     exit 1
 }
+
+[[ -n "$MI_HOST" ]] || error "which server? set MI_HOST=user@server or put it in ~/.config/mi/host"
 
 quote_args() {
     local out="" a
@@ -56,6 +60,10 @@ push() {
     for d in "${dirs[@]}"; do
         [[ -d "$d" ]] || error "push: not a folder: $d"
     done
+    if [[ -z "$MI_INBOX" ]]; then
+        MI_INBOX="$(ssh "${SSH_OPTS[@]}" -T "$MI_HOST" "$MI_REMOTE_BIN inbox-path")" \
+            || error "push: could not ask the server for its inbox folder (set MI_INBOX)"
+    fi
     for d in "${dirs[@]}"; do
         local name
         name="$(basename -- "$(cd -- "$d" && pwd)")"
@@ -80,7 +88,7 @@ case "${1:-}" in
         echo
         echo "From this machine also:"
         echo "  push DIR... [--as-is]              upload album folders into the server's inbox"
-        echo "Paths in other commands are paths on the server (e.g. /srv/media/music-inbox/...)."
+        echo "Paths in other commands are paths on the server."
         ;;
     *) remote "$@" ;;
 esac
